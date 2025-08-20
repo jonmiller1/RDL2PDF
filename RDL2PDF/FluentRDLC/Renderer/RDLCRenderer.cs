@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Microcharts;
 
 namespace FluentRDLC
 {
@@ -409,227 +410,109 @@ namespace FluentRDLC
 
         private byte[]? RenderChartToImage(ChartDefinition chartDef)
         {
-            var imageInfo = new SKImageInfo(chartDef.Width, chartDef.Height);
-            using var surface = SKSurface.Create(imageInfo);
-            var canvas = surface.Canvas;
-            canvas.Clear(SKColors.White);
-
-            switch (chartDef.ChartType)
+            try
             {
-                case ChartType.Column:
-                    RenderColumnChart(canvas, chartDef);
-                    break;
-                case ChartType.Bar:
-                    RenderBarChart(canvas, chartDef);
-                    break;
-                case ChartType.Line:
-                    RenderLineChart(canvas, chartDef);
-                    break;
-                case ChartType.Pie:
-                    RenderPieChart(canvas, chartDef);
-                    break;
-                case ChartType.Area:
-                    RenderAreaChart(canvas, chartDef);
-                    break;
-                default:
-                    RenderColumnChart(canvas, chartDef);
-                    break;
-            }
-
-            using var image = surface.Snapshot();
-            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            return data.ToArray();
-        }
-
-        private void RenderColumnChart(SKCanvas canvas, ChartDefinition chartDef)
-        {
-            var margin = 50f;
-            var chartArea = new SKRect(margin, margin, chartDef.Width - margin, chartDef.Height - margin);
-
-            DrawChartTitle(canvas, chartDef.Title, chartDef.Width);
-            DrawAxes(canvas, chartArea);
-
-            if (chartDef.Series.Count == 0) return;
-            var series = chartDef.Series[0];
-            if (series.DataPoints.Count == 0) return;
-
-            var columnWidth = (chartArea.Width - 20) / series.DataPoints.Count * 0.8f;
-            var maxValue = series.DataPoints.Max(p => p.Value);
-            var valueScale = maxValue > 0 ? (chartArea.Height - 20) / maxValue : 1;
-
-            using var paint = new SKPaint { Color = SKColors.Blue, Style = SKPaintStyle.Fill };
-
-            for (int i = 0; i < series.DataPoints.Count; i++)
-            {
-                var point = series.DataPoints[i];
-                var x = chartArea.Left + 10 + (i * (chartArea.Width - 20) / series.DataPoints.Count);
-                var height = (float)(point.Value * valueScale);
-                var y = chartArea.Bottom - height;
-
-                var columnRect = new SKRect(x, y, x + columnWidth, chartArea.Bottom);
-                canvas.DrawRect(columnRect, paint);
-
-                using var textPaint = new SKPaint { Color = SKColors.Black };
-                using var font = new SKFont { Size = 12 };
-                canvas.DrawText(point.Value.ToString("F1"), x + columnWidth / 2, y - 5, SKTextAlign.Center, font, textPaint);
-
-                if (!string.IsNullOrEmpty(point.Category))
+                Chart? chart = chartDef.ChartType switch
                 {
-                    canvas.DrawText(point.Category, x + columnWidth / 2, chartArea.Bottom + 15, SKTextAlign.Center, font, textPaint);
-                }
+                    ChartType.Column => CreateBarChart(chartDef, false),
+                    ChartType.Bar => CreateBarChart(chartDef, true),
+                    ChartType.Line => CreateLineChart(chartDef),
+                    ChartType.Pie => CreatePieChart(chartDef),
+                    ChartType.Area => CreateLineChart(chartDef), // Use line chart for area
+                    _ => CreateBarChart(chartDef, false)
+                };
+
+                if (chart == null) return null;
+
+                var imageInfo = new SKImageInfo(chartDef.Width, chartDef.Height);
+                using var surface = SKSurface.Create(imageInfo);
+                var canvas = surface.Canvas;
+                canvas.Clear(SKColors.White);
+
+                chart.Draw(canvas, chartDef.Width, chartDef.Height);
+
+                using var image = surface.Snapshot();
+                using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+                return data.ToArray();
             }
-        }
-
-        private void RenderBarChart(SKCanvas canvas, ChartDefinition chartDef)
-        {
-            var margin = 50f;
-            var chartArea = new SKRect(margin, margin, chartDef.Width - margin, chartDef.Height - margin);
-
-            DrawChartTitle(canvas, chartDef.Title, chartDef.Width);
-
-            if (chartDef.Series.Count == 0) return;
-            var series = chartDef.Series[0];
-            if (series.DataPoints.Count == 0) return;
-
-            var barHeight = (chartArea.Height - 20) / series.DataPoints.Count * 0.8f;
-            var maxValue = series.DataPoints.Max(p => p.Value);
-            var valueScale = maxValue > 0 ? (chartArea.Width - 20) / maxValue : 1;
-
-            using var paint = new SKPaint { Color = SKColors.Green, Style = SKPaintStyle.Fill };
-
-            for (int i = 0; i < series.DataPoints.Count; i++)
+            catch
             {
-                var point = series.DataPoints[i];
-                var y = chartArea.Top + 10 + (i * (chartArea.Height - 20) / series.DataPoints.Count);
-                var width = (float)(point.Value * valueScale);
-
-                var barRect = new SKRect(chartArea.Left, y, chartArea.Left + width, y + barHeight);
-                canvas.DrawRect(barRect, paint);
-
-                using var textPaint = new SKPaint { Color = SKColors.Black };
-                using var font = new SKFont { Size = 12 };
-
-                if (!string.IsNullOrEmpty(point.Category))
-                {
-                    canvas.DrawText(point.Category, chartArea.Left - 40, y + barHeight / 2, SKTextAlign.Left, font, textPaint);
-                }
+                return null;
             }
         }
 
-        private void RenderLineChart(SKCanvas canvas, ChartDefinition chartDef)
+        private Chart? CreateBarChart(ChartDefinition chartDef, bool isHorizontal)
         {
-            var margin = 50f;
-            var chartArea = new SKRect(margin, margin, chartDef.Width - margin, chartDef.Height - margin);
+            if (chartDef.Series.Count == 0 || chartDef.Series[0].DataPoints.Count == 0)
+                return null;
 
-            DrawChartTitle(canvas, chartDef.Title, chartDef.Width);
-            DrawAxes(canvas, chartArea);
-
-            if (chartDef.Series.Count == 0) return;
             var series = chartDef.Series[0];
-            if (series.DataPoints.Count < 2) return;
-
-            var maxValue = series.DataPoints.Max(p => p.Value);
-            var valueScale = maxValue > 0 ? (chartArea.Height - 20) / maxValue : 1;
-
-            using var paint = new SKPaint { Color = SKColors.Red, Style = SKPaintStyle.Stroke, StrokeWidth = 2 };
-            using var path = new SKPath();
-
-            for (int i = 0; i < series.DataPoints.Count; i++)
-            {
-                var point = series.DataPoints[i];
-                var x = chartArea.Left + 10 + (i * (chartArea.Width - 20) / (series.DataPoints.Count - 1));
-                var y = chartArea.Bottom - (float)(point.Value * valueScale);
-
-                if (i == 0)
-                    path.MoveTo(x, y);
-                else
-                    path.LineTo(x, y);
-
-                using var pointPaint = new SKPaint { Color = SKColors.Red, Style = SKPaintStyle.Fill };
-                canvas.DrawCircle(x, y, 3, pointPaint);
-            }
-
-            canvas.DrawPath(path, paint);
-        }
-
-        private void RenderPieChart(SKCanvas canvas, ChartDefinition chartDef)
-        {
-            var center = new SKPoint(chartDef.Width / 2f, chartDef.Height / 2f);
-            var radius = Math.Min(chartDef.Width, chartDef.Height) / 3f;
-
-            DrawChartTitle(canvas, chartDef.Title, chartDef.Width);
-
-            if (chartDef.Series.Count == 0) return;
-            var series = chartDef.Series[0];
-            if (series.DataPoints.Count == 0) return;
-
-            var total = series.DataPoints.Sum(p => p.Value);
-            var startAngle = 0f;
+            var entries = new List<ChartEntry>();
             var colors = new[] { SKColors.Blue, SKColors.Red, SKColors.Green, SKColors.Orange, SKColors.Purple };
 
             for (int i = 0; i < series.DataPoints.Count; i++)
             {
                 var point = series.DataPoints[i];
-                var sweepAngle = (float)(360 * point.Value / total);
-
-                using var paint = new SKPaint
+                entries.Add(new ChartEntry((float)point.Value)
                 {
-                    Color = colors[i % colors.Length],
-                    Style = SKPaintStyle.Fill
-                };
-
-                var rect = new SKRect(center.X - radius, center.Y - radius, center.X + radius, center.Y + radius);
-                canvas.DrawArc(rect, startAngle, sweepAngle, true, paint);
-                startAngle += sweepAngle;
+                    Label = string.IsNullOrEmpty(point.Category) ? $"Item {i + 1}" : point.Category,
+                    ValueLabel = point.Value.ToString("F1"),
+                    Color = colors[i % colors.Length]
+                });
             }
+
+            return isHorizontal ? new BarChart { Entries = entries } : new BarChart { Entries = entries };
         }
 
-        private void RenderAreaChart(SKCanvas canvas, ChartDefinition chartDef)
+        private Chart? CreateLineChart(ChartDefinition chartDef)
         {
-            var margin = 50f;
-            var chartArea = new SKRect(margin, margin, chartDef.Width - margin, chartDef.Height - margin);
+            if (chartDef.Series.Count == 0 || chartDef.Series[0].DataPoints.Count == 0)
+                return null;
 
-            DrawChartTitle(canvas, chartDef.Title, chartDef.Width);
-            DrawAxes(canvas, chartArea);
-
-            if (chartDef.Series.Count == 0) return;
             var series = chartDef.Series[0];
-            if (series.DataPoints.Count < 2) return;
-
-            var maxValue = series.DataPoints.Max(p => p.Value);
-            var valueScale = maxValue > 0 ? (chartArea.Height - 20) / maxValue : 1;
-
-            using var path = new SKPath();
-            path.MoveTo(chartArea.Left + 10, chartArea.Bottom);
+            var entries = new List<ChartEntry>();
+            var colors = new[] { SKColors.Blue, SKColors.Red, SKColors.Green, SKColors.Orange, SKColors.Purple };
 
             for (int i = 0; i < series.DataPoints.Count; i++)
             {
                 var point = series.DataPoints[i];
-                var x = chartArea.Left + 10 + (i * (chartArea.Width - 20) / (series.DataPoints.Count - 1));
-                var y = chartArea.Bottom - (float)(point.Value * valueScale);
-                path.LineTo(x, y);
+                entries.Add(new ChartEntry((float)point.Value)
+                {
+                    Label = string.IsNullOrEmpty(point.Category) ? $"Point {i + 1}" : point.Category,
+                    ValueLabel = point.Value.ToString("F1"),
+                    Color = colors[i % colors.Length]
+                });
             }
 
-            path.LineTo(chartArea.Right - 10, chartArea.Bottom);
-            path.Close();
-
-            using var paint = new SKPaint { Color = SKColors.LightBlue, Style = SKPaintStyle.Fill };
-            canvas.DrawPath(path, paint);
+            return new LineChart { Entries = entries };
         }
 
-        private void DrawChartTitle(SKCanvas canvas, string title, int width)
+        private Chart? CreatePieChart(ChartDefinition chartDef)
         {
-            using var paint = new SKPaint { Color = SKColors.Black };
-            using var font = new SKFont(SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold), 16);
-            canvas.DrawText(title, width / 2f, 30, SKTextAlign.Center, font, paint);
+            if (chartDef.Series.Count == 0 || chartDef.Series[0].DataPoints.Count == 0)
+                return null;
+
+            var series = chartDef.Series[0];
+            var entries = new List<ChartEntry>();
+            var colors = new[] { SKColors.Blue, SKColors.Red, SKColors.Green, SKColors.Orange, SKColors.Purple, SKColors.Yellow, SKColors.Cyan, SKColors.Magenta };
+
+            for (int i = 0; i < series.DataPoints.Count; i++)
+            {
+                var point = series.DataPoints[i];
+                entries.Add(new ChartEntry((float)point.Value)
+                {
+                    Label = string.IsNullOrEmpty(point.Category) ? $"Slice {i + 1}" : point.Category,
+                    ValueLabel = point.Value.ToString("F1"),
+                    Color = colors[i % colors.Length]
+                });
+            }
+
+            return new PieChart { Entries = entries };
         }
 
-        private void DrawAxes(SKCanvas canvas, SKRect chartArea)
-        {
-            using var paint = new SKPaint { Color = SKColors.Black, Style = SKPaintStyle.Stroke, StrokeWidth = 1 };
-            canvas.DrawLine(chartArea.Left, chartArea.Bottom, chartArea.Right, chartArea.Bottom, paint);
-            canvas.DrawLine(chartArea.Left, chartArea.Top, chartArea.Left, chartArea.Bottom, paint);
-        }
+
+
+
 
         private void ProcessTablix(ColumnDescriptor column, XElement tablixElement)
         {
