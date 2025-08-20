@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using FluentRDLC;
+using FluentRDLC.Renderer;
 
 class Program
 {

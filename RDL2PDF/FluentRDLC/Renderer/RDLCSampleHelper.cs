@@ -1,6 +1,6 @@
 using System.Data;
 
-namespace FluentRDLC
+namespace FluentRDLC.Renderer
 {
     public static class RDLCSampleHelper
     {

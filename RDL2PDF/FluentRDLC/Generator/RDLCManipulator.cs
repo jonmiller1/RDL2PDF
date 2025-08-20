@@ -5,7 +5,7 @@ using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
 
-namespace RdlcFluentBuilder
+namespace FluentRDLC.Generator
 {
     #region Data Models
 
