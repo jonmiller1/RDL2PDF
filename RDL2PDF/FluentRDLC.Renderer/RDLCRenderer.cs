@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microcharts;
 
-namespace FluentRDLC
+namespace FluentRDLC.Renderer
 {
     public enum ChartType
     {
