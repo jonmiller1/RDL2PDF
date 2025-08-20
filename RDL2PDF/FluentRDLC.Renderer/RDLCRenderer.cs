@@ -9,7 +9,8 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
-using Microcharts;
+using ScottPlot;
+using QPDFColors = QuestPDF.Helpers.Colors;
 
 namespace FluentRDLC.Renderer
 {
@@ -142,7 +143,7 @@ namespace FluentRDLC.Renderer
                 {
                     page.Size(PageSizes.A4);
                     page.Margin(2, Unit.Centimetre);
-                    page.PageColor(Colors.White);
+                    page.PageColor(QPDFColors.White);
                     page.DefaultTextStyle(x => x.FontSize(12));
 
                     // Header
@@ -269,7 +270,7 @@ namespace FluentRDLC.Renderer
                 var dataSetName = GetDataSetName(chartElement);
                 if (string.IsNullOrEmpty(dataSetName) || !_dataSources.ContainsKey(dataSetName))
                 {
-                    column.Item().Text("[Chart: No data source found]").FontColor(Colors.Red.Medium);
+                    column.Item().Text("[Chart: No data source found]").FontColor(QPDFColors.Red.Medium);
                     return;
                 }
 
@@ -285,17 +286,17 @@ namespace FluentRDLC.Renderer
                     }
                     else
                     {
-                        column.Item().Text("[Chart: Rendering failed]").FontColor(Colors.Red.Medium);
+                        column.Item().Text("[Chart: Rendering failed]").FontColor(QPDFColors.Red.Medium);
                     }
                 }
                 else
                 {
-                    column.Item().Text("[Chart: Invalid configuration]").FontColor(Colors.Red.Medium);
+                    column.Item().Text("[Chart: Invalid configuration]").FontColor(QPDFColors.Red.Medium);
                 }
             }
             catch (Exception ex)
             {
-                column.Item().Text($"[Chart Error: {ex.Message}]").FontColor(Colors.Red.Medium);
+                column.Item().Text($"[Chart Error: {ex.Message}]").FontColor(QPDFColors.Red.Medium);
             }
         }
 
@@ -396,6 +397,7 @@ namespace FluentRDLC.Renderer
 
             var yExpression = yValue.Value;
             var yValueStr = ProcessExpression(yExpression);
+            
             if (double.TryParse(yValueStr, out var yVal))
             {
                 point.Value = yVal;
@@ -408,7 +410,8 @@ namespace FluentRDLC.Renderer
             var xValue = dataValues.Element(_rdlcNamespace + "X");
             if (xValue != null)
             {
-                point.Category = ProcessExpression(xValue.Value);
+                var xExpression = xValue.Value;
+                point.Category = ProcessExpression(xExpression);
             }
 
             return point;
@@ -418,28 +421,40 @@ namespace FluentRDLC.Renderer
         {
             try
             {
-                Chart? chart = chartDef.ChartType switch
+                var plt = new Plot();
+                // ScottPlot 5.x doesn't use Layout.Padding like this, margins are handled automatically
+                
+                switch (chartDef.ChartType)
                 {
-                    ChartType.Column => CreateBarChart(chartDef, false),
-                    ChartType.Bar => CreateBarChart(chartDef, true),
-                    ChartType.Line => CreateLineChart(chartDef),
-                    ChartType.Pie => CreatePieChart(chartDef),
-                    ChartType.Area => CreateLineChart(chartDef), // Use line chart for area
-                    _ => CreateBarChart(chartDef, false)
-                };
+                    case ChartType.Column:
+                        CreateColumnChart(plt, chartDef);
+                        break;
+                    case ChartType.Bar:
+                        CreateBarChart(plt, chartDef);
+                        break;
+                    case ChartType.Line:
+                        CreateLineChart(plt, chartDef);
+                        break;
+                    case ChartType.Pie:
+                        CreatePieChart(plt, chartDef);
+                        break;
+                    case ChartType.Area:
+                        CreateAreaChart(plt, chartDef);
+                        break;
+                    default:
+                        CreateColumnChart(plt, chartDef);
+                        break;
+                }
 
-                if (chart == null) return null;
+                // Set chart title if available
+                if (!string.IsNullOrEmpty(chartDef.Title))
+                {
+                    plt.Title(chartDef.Title);
+                }
 
-                var imageInfo = new SKImageInfo(chartDef.Width, chartDef.Height);
-                using var surface = SKSurface.Create(imageInfo);
-                var canvas = surface.Canvas;
-                canvas.Clear(SKColors.White);
-
-                chart.Draw(canvas, chartDef.Width, chartDef.Height);
-
-                using var image = surface.Snapshot();
-                using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-                return data.ToArray();
+                // Render to byte array
+                var image = plt.GetImage(chartDef.Width, chartDef.Height);
+                return image.GetImageBytes();
             }
             catch
             {
@@ -447,73 +462,131 @@ namespace FluentRDLC.Renderer
             }
         }
 
-        private Chart? CreateBarChart(ChartDefinition chartDef, bool isHorizontal)
+        private void CreateColumnChart(Plot plt, ChartDefinition chartDef)
         {
             if (chartDef.Series.Count == 0 || chartDef.Series[0].DataPoints.Count == 0)
-                return null;
+                return;
 
             var series = chartDef.Series[0];
-            var entries = new List<ChartEntry>();
-            var colors = new[] { SKColors.Blue, SKColors.Red, SKColors.Green, SKColors.Orange, SKColors.Purple };
+            var values = series.DataPoints.Select(p => p.Value).ToArray();
+            var labels = series.DataPoints.Select(p => string.IsNullOrEmpty(p.Category) ? "Item" : p.Category).ToArray();
 
-            for (int i = 0; i < series.DataPoints.Count; i++)
-            {
-                var point = series.DataPoints[i];
-                entries.Add(new ChartEntry((float)point.Value)
-                {
-                    Label = string.IsNullOrEmpty(point.Category) ? $"Item {i + 1}" : point.Category,
-                    ValueLabel = point.Value.ToString("F1"),
-                    Color = colors[i % colors.Length]
-                });
-            }
-
-            return isHorizontal ? new BarChart { Entries = entries } : new BarChart { Entries = entries };
+            var bar = plt.Add.Bars(values);
+            bar.Color = ScottPlot.Color.FromHex("#2E86AB");
+            
+            // Set category labels on X-axis
+            plt.Axes.Bottom.SetTicks(Enumerable.Range(0, labels.Length).Select(i => (double)i).ToArray(), labels);
+            plt.Axes.Bottom.TickLabelStyle.Rotation = -45;
+            plt.Axes.Bottom.TickLabelStyle.Alignment = Alignment.MiddleRight;
+            
+            plt.Axes.Left.Label.Text = "Value";
+            plt.Axes.Bottom.Label.Text = "Category";
         }
 
-        private Chart? CreateLineChart(ChartDefinition chartDef)
+        private void CreateBarChart(Plot plt, ChartDefinition chartDef)
         {
             if (chartDef.Series.Count == 0 || chartDef.Series[0].DataPoints.Count == 0)
-                return null;
+                return;
 
             var series = chartDef.Series[0];
-            var entries = new List<ChartEntry>();
-            var colors = new[] { SKColors.Blue, SKColors.Red, SKColors.Green, SKColors.Orange, SKColors.Purple };
+            var values = series.DataPoints.Select(p => p.Value).ToArray();
+            var labels = series.DataPoints.Select(p => string.IsNullOrEmpty(p.Category) ? "Item" : p.Category).ToArray();
 
-            for (int i = 0; i < series.DataPoints.Count; i++)
-            {
-                var point = series.DataPoints[i];
-                entries.Add(new ChartEntry((float)point.Value)
-                {
-                    Label = string.IsNullOrEmpty(point.Category) ? $"Point {i + 1}" : point.Category,
-                    ValueLabel = point.Value.ToString("F1"),
-                    Color = colors[i % colors.Length]
-                });
-            }
-
-            return new LineChart { Entries = entries };
+            // Create horizontal bars
+            var positions = Enumerable.Range(0, values.Length).Select(i => (double)i).ToArray();
+            var bar = plt.Add.Bars(positions, values);
+            bar.Color = ScottPlot.Color.FromHex("#A23B72");
+            bar.Horizontal = true;
+            
+            // Set category labels on Y-axis for horizontal bars
+            plt.Axes.Left.SetTicks(positions, labels);
+            plt.Axes.Bottom.Label.Text = "Value";
+            plt.Axes.Left.Label.Text = "Category";
         }
 
-        private Chart? CreatePieChart(ChartDefinition chartDef)
+        private void CreateLineChart(Plot plt, ChartDefinition chartDef)
         {
             if (chartDef.Series.Count == 0 || chartDef.Series[0].DataPoints.Count == 0)
-                return null;
+                return;
 
             var series = chartDef.Series[0];
-            var entries = new List<ChartEntry>();
-            var colors = new[] { SKColors.Blue, SKColors.Red, SKColors.Green, SKColors.Orange, SKColors.Purple, SKColors.Yellow, SKColors.Cyan, SKColors.Magenta };
+            var xValues = Enumerable.Range(0, series.DataPoints.Count).Select(i => (double)i).ToArray();
+            var yValues = series.DataPoints.Select(p => p.Value).ToArray();
+            var labels = series.DataPoints.Select(p => string.IsNullOrEmpty(p.Category) ? "Point" : p.Category).ToArray();
 
-            for (int i = 0; i < series.DataPoints.Count; i++)
+            var line = plt.Add.ScatterLine(xValues, yValues);
+            line.Color = ScottPlot.Color.FromHex("#F18F01");
+            line.LineWidth = 3;
+            line.MarkerSize = 8;
+            
+            // Set category labels on X-axis
+            plt.Axes.Bottom.SetTicks(xValues, labels);
+            plt.Axes.Bottom.TickLabelStyle.Rotation = -45;
+            plt.Axes.Bottom.TickLabelStyle.Alignment = Alignment.MiddleRight;
+            
+            plt.Axes.Left.Label.Text = "Value";
+            plt.Axes.Bottom.Label.Text = "Category";
+        }
+
+        private void CreatePieChart(Plot plt, ChartDefinition chartDef)
+        {
+            if (chartDef.Series.Count == 0 || chartDef.Series[0].DataPoints.Count == 0)
+                return;
+
+            var series = chartDef.Series[0];
+            var values = series.DataPoints.Select(p => p.Value).ToArray();
+            var labels = series.DataPoints.Select(p => string.IsNullOrEmpty(p.Category) ? "Slice" : p.Category).ToArray();
+
+            var pie = plt.Add.Pie(values);
+            // Set labels for pie slices
+            for (int i = 0; i < labels.Length && i < pie.Slices.Count; i++)
             {
-                var point = series.DataPoints[i];
-                entries.Add(new ChartEntry((float)point.Value)
-                {
-                    Label = string.IsNullOrEmpty(point.Category) ? $"Slice {i + 1}" : point.Category,
-                    ValueLabel = point.Value.ToString("F1"),
-                    Color = colors[i % colors.Length]
-                });
+                pie.Slices[i].LegendText = labels[i];
             }
+            plt.ShowLegend(Alignment.UpperRight);
+            
+            // Use a nice color palette
+            var colors = new ScottPlot.Color[]
+            {
+                ScottPlot.Color.FromHex("#2E86AB"),
+                ScottPlot.Color.FromHex("#A23B72"),
+                ScottPlot.Color.FromHex("#F18F01"),
+                ScottPlot.Color.FromHex("#C73E1D"),
+                ScottPlot.Color.FromHex("#8B5A2B"),
+                ScottPlot.Color.FromHex("#5D737E"),
+                ScottPlot.Color.FromHex("#7B2D26"),
+                ScottPlot.Color.FromHex("#4A4A4A")
+            };
+            
+            for (int i = 0; i < pie.Slices.Count && i < colors.Length; i++)
+            {
+                pie.Slices[i].FillColor = colors[i % colors.Length];
+            }
+        }
 
-            return new PieChart { Entries = entries };
+        private void CreateAreaChart(Plot plt, ChartDefinition chartDef)
+        {
+            if (chartDef.Series.Count == 0 || chartDef.Series[0].DataPoints.Count == 0)
+                return;
+
+            var series = chartDef.Series[0];
+            var xValues = Enumerable.Range(0, series.DataPoints.Count).Select(i => (double)i).ToArray();
+            var yValues = series.DataPoints.Select(p => p.Value).ToArray();
+            var labels = series.DataPoints.Select(p => string.IsNullOrEmpty(p.Category) ? "Point" : p.Category).ToArray();
+
+            var scatter = plt.Add.Scatter(xValues, yValues);
+            scatter.FillY = true;
+            scatter.FillYColor = ScottPlot.Color.FromHex("#2E86AB").WithAlpha(100);
+            scatter.Color = ScottPlot.Color.FromHex("#2E86AB");
+            scatter.LineWidth = 2;
+            
+            // Set category labels on X-axis
+            plt.Axes.Bottom.SetTicks(xValues, labels);
+            plt.Axes.Bottom.TickLabelStyle.Rotation = -45;
+            plt.Axes.Bottom.TickLabelStyle.Alignment = Alignment.MiddleRight;
+            
+            plt.Axes.Left.Label.Text = "Value";
+            plt.Axes.Bottom.Label.Text = "Category";
         }
 
 
@@ -609,7 +682,7 @@ namespace FluentRDLC.Renderer
             var reportItems = rectangleElement.Element(_rdlcNamespace + "ReportItems");
             if (reportItems != null)
             {
-                column.Item().BorderColor(Colors.Grey.Medium).Border(1).Padding(5).Column(subColumn =>
+                column.Item().BorderColor(QPDFColors.Grey.Medium).Border(1).Padding(5).Column(subColumn =>
                 {
                     foreach (var item in reportItems.Elements())
                     {
@@ -635,23 +708,23 @@ namespace FluentRDLC.Renderer
                     }
                     else
                     {
-                        column.Item().Text($"[Image not found: {imagePath}]").FontColor(Colors.Red.Medium);
+                        column.Item().Text($"[Image not found: {imagePath}]").FontColor(QPDFColors.Red.Medium);
                     }
                 }
                 else
                 {
-                    column.Item().Text($"[Image: {source?.Value ?? "Unknown"}]").FontColor(Colors.Grey.Medium);
+                    column.Item().Text($"[Image: {source?.Value ?? "Unknown"}]").FontColor(QPDFColors.Grey.Medium);
                 }
             }
             catch (Exception ex)
             {
-                column.Item().Text($"[Image Error: {ex.Message}]").FontColor(Colors.Red.Medium);
+                column.Item().Text($"[Image Error: {ex.Message}]").FontColor(QPDFColors.Red.Medium);
             }
         }
 
         private void ProcessLine(ColumnDescriptor column, XElement lineElement)
         {
-            column.Item().LineHorizontal(1).LineColor(Colors.Black);
+            column.Item().LineHorizontal(1).LineColor(QPDFColors.Black);
         }
 
         private void ProcessReportItems(ColumnDescriptor column, XElement container)
@@ -884,13 +957,13 @@ namespace FluentRDLC.Renderer
 
             return colorValue.ToLower() switch
             {
-                "red" => Colors.Red.Medium,
-                "blue" => Colors.Blue.Medium,
-                "green" => Colors.Green.Medium,
-                "black" => Colors.Black,
-                "white" => Colors.White,
-                "gray" or "grey" => Colors.Grey.Medium,
-                _ => Colors.Black
+                "red" => QPDFColors.Red.Medium,
+                "blue" => QPDFColors.Blue.Medium,
+                "green" => QPDFColors.Green.Medium,
+                "black" => QPDFColors.Black,
+                "white" => QPDFColors.White,
+                "gray" or "grey" => QPDFColors.Grey.Medium,
+                _ => QPDFColors.Black
             };
         }
 
@@ -898,7 +971,7 @@ namespace FluentRDLC.Renderer
         {
             return container
                 .Border(1)
-                .BorderColor(Colors.Grey.Medium)
+                .BorderColor(QPDFColors.Grey.Medium)
                 .Padding(5)
                 .AlignMiddle();
         }
@@ -952,17 +1025,17 @@ namespace FluentRDLC.Renderer
                     }
                     else
                     {
-                        column.Item().Text("[Indicator: Rendering failed]").FontColor(Colors.Red.Medium);
+                        column.Item().Text("[Indicator: Rendering failed]").FontColor(QPDFColors.Red.Medium);
                     }
                 }
                 else
                 {
-                    column.Item().Text("[Indicator: Invalid configuration]").FontColor(Colors.Red.Medium);
+                    column.Item().Text("[Indicator: Invalid configuration]").FontColor(QPDFColors.Red.Medium);
                 }
             }
             catch (Exception ex)
             {
-                column.Item().Text($"[Indicator Error: {ex.Message}]").FontColor(Colors.Red.Medium);
+                column.Item().Text($"[Indicator Error: {ex.Message}]").FontColor(QPDFColors.Red.Medium);
             }
         }
 
