@@ -1,0 +1,256 @@
+﻿<Window x:Class="RDLCReportDesigner.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:RDLCReportDesigner"
+        Title="RDLC Report Designer" Height="800" Width="1200"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <Style x:Key="ToolboxButtonStyle" TargetType="Button">
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Background" Value="LightBlue"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="DarkBlue"/>
+        </Style>
+
+        <Style x:Key="PropertyGridStyle" TargetType="TextBox">
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Gray"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Menu Bar -->
+        <Menu Grid.Row="0">
+            <MenuItem Header="_File">
+                <MenuItem Header="_New Report" Click="NewReport_Click"/>
+                <MenuItem Header="_Open Report" Click="OpenReport_Click"/>
+                <MenuItem Header="_Save Report" Click="SaveReport_Click"/>
+                <MenuItem Header="Save _As..." Click="SaveAsReport_Click"/>
+                <Separator/>
+                <MenuItem Header="_Export to PDF" Click="ExportToPdf_Click"/>
+                <MenuItem Header="_Preview Report" Click="PreviewReport_Click"/>
+                <Separator/>
+                <MenuItem Header="E_xit" Click="Exit_Click"/>
+            </MenuItem>
+            <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" Click="Undo_Click"/>
+                <MenuItem Header="_Redo" Click="Redo_Click"/>
+                <Separator/>
+                <MenuItem Header="_Delete Selected" Click="DeleteSelected_Click"/>
+            </MenuItem>
+            <MenuItem Header="_View">
+                <MenuItem Header="_Zoom In" Click="ZoomIn_Click"/>
+                <MenuItem Header="Zoom _Out" Click="ZoomOut_Click"/>
+                <MenuItem Header="_Fit to Page" Click="FitToPage_Click"/>
+            </MenuItem>
+        </Menu>
+
+        <!-- Main Content Area -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="200"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="5"/>
+                <ColumnDefinition Width="250"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Toolbox -->
+            <Border Grid.Column="0" BorderBrush="Gray" BorderThickness="1">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Toolbox" FontWeight="Bold" 
+                               Padding="5" Background="LightGray"/>
+                    <ScrollViewer>
+                        <StackPanel x:Name="ToolboxPanel" Margin="5">
+                            <Button x:Name="SelectButton" Content="Select" Style="{StaticResource ToolboxButtonStyle}" 
+                                    Click="SelectTool_Click" Background="Yellow"/>
+                            <Button Content="Text Box" Style="{StaticResource ToolboxButtonStyle}" 
+                                    Click="TextBoxTool_Click"/>
+                            <Button Content="Label" Style="{StaticResource ToolboxButtonStyle}" 
+                                    Click="LabelTool_Click"/>
+                            <Button Content="Table" Style="{StaticResource ToolboxButtonStyle}" 
+                                    Click="TableTool_Click"/>
+                            <Button Content="Image" Style="{StaticResource ToolboxButtonStyle}" 
+                                    Click="ImageTool_Click"/>
+                            <Button Content="Line" Style="{StaticResource ToolboxButtonStyle}" 
+                                    Click="LineTool_Click"/>
+                            <Button Content="Rectangle" Style="{StaticResource ToolboxButtonStyle}" 
+                                    Click="RectangleTool_Click"/>
+                            <Button Content="Chart" Style="{StaticResource ToolboxButtonStyle}" 
+                                    Click="ChartTool_Click"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="Gray"/>
+
+            <!-- Design Surface -->
+            <Border Grid.Column="2" BorderBrush="Black" BorderThickness="2">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Background="LightGray">
+                        <TextBlock Text="Report Designer" FontWeight="Bold" Padding="5"/>
+                        <TextBlock x:Name="ZoomLabel" Text="100%" Padding="5"/>
+                        <Rectangle Width="1" Height="20" Fill="Gray" Margin="5,0"/>
+                        <Button Content="🔍+" Click="ZoomIn_Click" Margin="2"/>
+                        <Button Content="🔍-" Click="ZoomOut_Click" Margin="2"/>
+                    </StackPanel>
+
+                    <ScrollViewer x:Name="DesignScrollViewer"
+                                  HorizontalScrollBarVisibility="Auto" 
+                                  VerticalScrollBarVisibility="Auto">
+                        <Grid>
+                            <!-- Grid Background -->
+                            <Rectangle Fill="White" Width="800" Height="1000"/>
+
+                            <!-- Grid Pattern -->
+                            <Canvas Width="800" Height="1000">
+                                <Canvas.Background>
+                                    <DrawingBrush TileMode="Tile" Viewport="0,0,20,20" ViewportUnits="Absolute">
+                                        <DrawingBrush.Drawing>
+                                            <GeometryDrawing Brush="White">
+                                                <GeometryDrawing.Geometry>
+                                                    <RectangleGeometry Rect="0,0,20,20"/>
+                                                </GeometryDrawing.Geometry>
+                                                <GeometryDrawing.Pen>
+                                                    <Pen Brush="LightGray" Thickness="0.5"/>
+                                                </GeometryDrawing.Pen>
+                                            </GeometryDrawing>
+                                        </DrawingBrush.Drawing>
+                                    </DrawingBrush>
+                                </Canvas.Background>
+
+                                <!-- Ruler Lines -->
+                                <Line X1="0" Y1="20" X2="800" Y2="20" Stroke="DarkGray" StrokeThickness="1"/>
+                                <Line X1="20" Y1="0" X2="20" Y2="1000" Stroke="DarkGray" StrokeThickness="1"/>
+                            </Canvas>
+
+                            <!-- Design Canvas -->
+                            <Canvas x:Name="DesignCanvas" 
+                                    Background="Transparent"
+                                    Width="800" 
+                                    Height="1000"
+                                    MouseLeftButtonDown="DesignCanvas_MouseLeftButtonDown"
+                                    MouseMove="DesignCanvas_MouseMove"
+                                    MouseLeftButtonUp="DesignCanvas_MouseLeftButtonUp"
+                                    AllowDrop="True"
+                                    Drop="DesignCanvas_Drop"
+                                    DragOver="DesignCanvas_DragOver">
+                            </Canvas>
+                        </Grid>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" Background="Gray"/>
+
+            <!-- Properties Panel -->
+            <Border Grid.Column="4" BorderBrush="Gray" BorderThickness="1">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Properties" FontWeight="Bold" 
+                               Padding="5" Background="LightGray"/>
+                    <ScrollViewer>
+                        <StackPanel x:Name="PropertiesPanel" Margin="5">
+                            <TextBlock Text="No item selected" x:Name="NoSelectionText" FontStyle="Italic"/>
+
+                            <!-- Dynamic property controls will be added here -->
+                            <StackPanel x:Name="PropertyControls" Visibility="Collapsed">
+                                <GroupBox Header="General" Margin="0,5">
+                                    <StackPanel>
+                                        <Label Content="Name:"/>
+                                        <TextBox x:Name="NameTextBox" Style="{StaticResource PropertyGridStyle}" 
+                                                 TextChanged="Property_Changed"/>
+
+                                        <Label Content="Text:"/>
+                                        <TextBox x:Name="TextTextBox" Style="{StaticResource PropertyGridStyle}" 
+                                                 TextChanged="Property_Changed"/>
+
+                                        <Label Content="Font Size:"/>
+                                        <TextBox x:Name="FontSizeTextBox" Style="{StaticResource PropertyGridStyle}" 
+                                                 TextChanged="Property_Changed"/>
+                                    </StackPanel>
+                                </GroupBox>
+
+                                <GroupBox Header="Position" Margin="0,5">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                            <RowDefinition/>
+                                        </Grid.RowDefinitions>
+
+                                        <Label Grid.Row="0" Grid.Column="0" Content="X:"/>
+                                        <TextBox Grid.Row="0" Grid.Column="1" x:Name="XTextBox" 
+                                                 Style="{StaticResource PropertyGridStyle}" 
+                                                 TextChanged="Property_Changed"/>
+
+                                        <Label Grid.Row="1" Grid.Column="0" Content="Y:"/>
+                                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="YTextBox" 
+                                                 Style="{StaticResource PropertyGridStyle}" 
+                                                 TextChanged="Property_Changed"/>
+
+                                        <Label Grid.Row="2" Grid.Column="0" Content="Width:"/>
+                                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="WidthTextBox" 
+                                                 Style="{StaticResource PropertyGridStyle}" 
+                                                 TextChanged="Property_Changed"/>
+
+                                        <Label Grid.Row="3" Grid.Column="0" Content="Height:"/>
+                                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="HeightTextBox" 
+                                                 Style="{StaticResource PropertyGridStyle}" 
+                                                 TextChanged="Property_Changed"/>
+                                    </Grid>
+                                </GroupBox>
+
+                                <GroupBox Header="Appearance" Margin="0,5">
+                                    <StackPanel>
+                                        <Label Content="Background Color:"/>
+                                        <ComboBox x:Name="BackgroundColorCombo" SelectionChanged="Property_Changed">
+                                            <ComboBoxItem Content="Transparent"/>
+                                            <ComboBoxItem Content="White"/>
+                                            <ComboBoxItem Content="LightGray"/>
+                                            <ComboBoxItem Content="Yellow"/>
+                                            <ComboBoxItem Content="LightBlue"/>
+                                        </ComboBox>
+
+                                        <Label Content="Border Style:"/>
+                                        <ComboBox x:Name="BorderStyleCombo" SelectionChanged="Property_Changed">
+                                            <ComboBoxItem Content="None"/>
+                                            <ComboBoxItem Content="Solid"/>
+                                            <ComboBoxItem Content="Dashed"/>
+                                            <ComboBoxItem Content="Dotted"/>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </GroupBox>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- Status Bar -->
+        <StatusBar Grid.Row="2">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText" Text="Ready"/>
+            </StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right">
+                <TextBlock x:Name="CoordinateText" Text="X: 0, Y: 0"/>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>
