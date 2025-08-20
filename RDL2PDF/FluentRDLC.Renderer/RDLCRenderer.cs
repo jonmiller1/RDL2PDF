@@ -96,6 +96,12 @@ namespace FluentRDLC.Renderer
             _dataSources[name] = dataTable;
         }
 
+        public void AddObjectDataSource<T>(string name, IEnumerable<T> objects) where T : class
+        {
+            var dataTable = ConvertObjectsToDataTable(objects);
+            _dataSources[name] = dataTable;
+        }
+
         public void AddParameter(string name, object value)
         {
             _parameters[name] = value;
@@ -1294,6 +1300,34 @@ namespace FluentRDLC.Renderer
             }
 
             return expression;
+        }
+
+        private static DataTable ConvertObjectsToDataTable<T>(IEnumerable<T> objects) where T : class
+        {
+            var dataTable = new DataTable();
+            var type = typeof(T);
+            var properties = type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+
+            // Create columns from object properties
+            foreach (var prop in properties)
+            {
+                var columnType = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+                dataTable.Columns.Add(prop.Name, columnType);
+            }
+
+            // Add rows from objects
+            foreach (var obj in objects)
+            {
+                var row = dataTable.NewRow();
+                foreach (var prop in properties)
+                {
+                    var value = prop.GetValue(obj);
+                    row[prop.Name] = value ?? DBNull.Value;
+                }
+                dataTable.Rows.Add(row);
+            }
+
+            return dataTable;
         }
     }
 }

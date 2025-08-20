@@ -17,6 +17,17 @@ namespace FluentRDLC
         public string Name { get; set; }
         public string ConnectionString { get; set; }
         public string DataSourceReference { get; set; }
+        public DataSourceType SourceType { get; set; } = DataSourceType.Sql;
+        public Type? ObjectType { get; set; }
+    }
+
+    /// <summary>
+    /// Type of data source
+    /// </summary>
+    public enum DataSourceType
+    {
+        Sql,
+        Object
     }
 
     /// <summary>
@@ -201,6 +212,14 @@ namespace FluentRDLC
             DataSource.DataSourceReference = reference;
             return this;
         }
+
+        public DataSourceBuilder AsObjectDataSource<T>() where T : class
+        {
+            DataSource.SourceType = DataSourceType.Object;
+            DataSource.ObjectType = typeof(T);
+            DataSource.ConnectionString = ""; // No connection string needed for object data sources
+            return this;
+        }
     }
 
     /// <summary>
@@ -271,6 +290,49 @@ namespace FluentRDLC
 
         public DataSetBuilder WithDateTimeField(string name, string dataField = null) =>
             WithField(name, dataField ?? name, f => f.AsDateTime());
+
+        /// <summary>
+        /// Automatically infer fields from an object type
+        /// </summary>
+        public DataSetBuilder WithFieldsFromType<T>() where T : class
+        {
+            var type = typeof(T);
+            var properties = type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            
+            foreach (var prop in properties)
+            {
+                var fieldName = prop.Name;
+                var dataType = GetDataTypeFromPropertyType(prop.PropertyType);
+                
+                DataSet.Fields.Add(new RdlcField
+                {
+                    Name = fieldName,
+                    DataField = fieldName,
+                    DataType = dataType
+                });
+            }
+            
+            return this;
+        }
+
+        private static string GetDataTypeFromPropertyType(Type propertyType)
+        {
+            // Handle nullable types
+            var underlyingType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+            
+            return underlyingType.Name switch
+            {
+                nameof(String) => "System.String",
+                nameof(Int32) => "System.Int32",
+                nameof(Int64) => "System.Int64",
+                nameof(Decimal) => "System.Decimal",
+                nameof(Double) => "System.Double",
+                nameof(Single) => "System.Single",
+                nameof(DateTime) => "System.DateTime",
+                nameof(Boolean) => "System.Boolean",
+                _ => "System.String" // Default to string for unknown types
+            };
+        }
     }
 
     /// <summary>
@@ -623,6 +685,11 @@ namespace FluentRDLC
             return WithDataSource(name, ds => ds.WithConnectionString(connectionString));
         }
 
+        public RdlcReportBuilder WithObjectDataSource<T>(string name) where T : class
+        {
+            return WithDataSource(name, ds => ds.AsObjectDataSource<T>());
+        }
+
         public RdlcReportBuilder WithDataSource(string name, Action<DataSourceBuilder> configure)
         {
             var dataSourceBuilder = new DataSourceBuilder(name);
@@ -681,7 +748,7 @@ namespace FluentRDLC
         public RdlcReportBuilder WithSalesChart(string dataSetName, string categoryField, string valueField,
             double left, double top, double width = 4, double height = 3)
         {
-            return WithChart($"SalesChart_{Guid.NewGuid():N}", chart => chart
+            return WithChart($"SalesChart_C{Guid.NewGuid():N}", chart => chart
                 .UsingDataSet(dataSetName)
                 .WithData(categoryField, valueField)
                 .WithBounds(left, top, width, height)
@@ -694,7 +761,7 @@ namespace FluentRDLC
         public RdlcReportBuilder WithLineChart(string dataSetName, string categoryField, string valueField,
             double left, double top, double width = 4, double height = 2.5)
         {
-            return WithChart($"LineChart_{Guid.NewGuid():N}", chart => chart
+            return WithChart($"LineChart_C{Guid.NewGuid():N}", chart => chart
                 .UsingDataSet(dataSetName)
                 .WithData(categoryField, valueField)
                 .WithBounds(left, top, width, height)
@@ -706,7 +773,7 @@ namespace FluentRDLC
         public RdlcReportBuilder WithPieChart(string dataSetName, string categoryField, string valueField,
             double left, double top, double size = 3)
         {
-            return WithChart($"PieChart_{Guid.NewGuid():N}", chart => chart
+            return WithChart($"PieChart_C{Guid.NewGuid():N}", chart => chart
                 .UsingDataSet(dataSetName)
                 .WithData(categoryField, valueField)
                 .WithBounds(left, top, size, size)
@@ -924,12 +991,30 @@ namespace FluentRDLC
         public void AddDataSource(RdlcDataSource dataSource)
         {
             var dataSourcesElement = GetOrCreateElement(_rdlcDocument.Root, "DataSources");
-            var dataSourceElement = new XElement(_reportNamespace + "DataSource",
-                new XAttribute("Name", dataSource.Name),
-                new XElement(_reportNamespace + "ConnectionProperties",
-                    new XElement(_reportNamespace + "DataProvider", "System.Data.SqlClient"),
-                    new XElement(_reportNamespace + "ConnectString", dataSource.ConnectionString ?? "")
-                ));
+            
+            XElement dataSourceElement;
+            
+            if (dataSource.SourceType == DataSourceType.Object)
+            {
+                // For object data sources, use a generic connection
+                dataSourceElement = new XElement(_reportNamespace + "DataSource",
+                    new XAttribute("Name", dataSource.Name),
+                    new XElement(_reportNamespace + "ConnectionProperties",
+                        new XElement(_reportNamespace + "DataProvider", "Microsoft.ReportingServices.DataExtensions.XmlDPConnection"),
+                        new XElement(_reportNamespace + "ConnectString", $"ObjectDataSource={dataSource.ObjectType?.FullName ?? dataSource.Name}")
+                    ));
+            }
+            else
+            {
+                // Traditional SQL data source
+                dataSourceElement = new XElement(_reportNamespace + "DataSource",
+                    new XAttribute("Name", dataSource.Name),
+                    new XElement(_reportNamespace + "ConnectionProperties",
+                        new XElement(_reportNamespace + "DataProvider", "System.Data.SqlClient"),
+                        new XElement(_reportNamespace + "ConnectString", dataSource.ConnectionString ?? "")
+                    ));
+            }
+            
             dataSourcesElement.Add(dataSourceElement);
         }
 
@@ -948,11 +1033,11 @@ namespace FluentRDLC
             var fieldsElement = dataSetElement.Element(_reportNamespace + "Fields");
             foreach (var field in dataSet.Fields)
             {
+                var rdNamespace = XNamespace.Get("http://schemas.microsoft.com/SQLServer/reporting/reportdesigner");
                 fieldsElement?.Add(new XElement(_reportNamespace + "Field",
                     new XAttribute("Name", field.Name),
                     new XElement(_reportNamespace + "DataField", field.DataField),
-                    new XElement(_reportNamespace + "rd:TypeName", field.DataType,
-                        new XAttribute(XNamespace.Get("http://schemas.microsoft.com/SQLServer/reporting/reportdesigner") + "TypeName", field.DataType))
+                    new XElement(rdNamespace + "TypeName", field.DataType)
                 ));
             }
             dataSetsElement.Add(dataSetElement);
