@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <PackageReference Include="QuestPDF" Version="2025.7.0" />
-    <PackageReference Include="SkiaSharp" Version="3.119.0" />
   </ItemGroup>
 
 </Project>
