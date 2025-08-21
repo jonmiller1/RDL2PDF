@@ -50,7 +50,13 @@ public class RdlcExpressionEvaluator
             var result = EvaluateRdlcExpression(expression);
             
             // Check if the result is still an unprocessed complex expression (likely invalid)
-            if (result.Contains("(") && result.Contains(")") && !result.StartsWith("'"))
+            // But only if it actually looks like an unprocessed expression (contains function calls or field references)
+            bool hasUnprocessedExpressions = result.Contains("Fields!") || result.Contains("Parameters!") || 
+                                            result.Contains("Format(") || result.Contains("Sum(");
+            bool hasInvalidFunctionPattern = System.Text.RegularExpressions.Regex.IsMatch(result, @"[A-Za-z][A-Za-z0-9]*\(");
+            
+            if (result.Contains("(") && result.Contains(")") && !result.StartsWith("'") && 
+                (hasUnprocessedExpressions || hasInvalidFunctionPattern))
             {
                 return $"[Error: Unrecognized function or expression] {result}";
             }

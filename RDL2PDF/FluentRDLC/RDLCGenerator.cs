@@ -185,6 +185,53 @@ namespace FluentRDLC
         public string ImageData { get; set; } // Base64 encoded image data
     }
 
+    /// <summary>
+    /// Represents a tablix (table) control in the report
+    /// </summary>
+    public class RdlcTablix
+    {
+        public string Name { get; set; }
+        public string DataSetName { get; set; }
+        public double Left { get; set; }
+        public double Top { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public List<RdlcTablixColumn> Columns { get; set; } = new List<RdlcTablixColumn>();
+        public List<RdlcTablixRow> HeaderRows { get; set; } = new List<RdlcTablixRow>();
+        public List<RdlcTablixRow> DataRows { get; set; } = new List<RdlcTablixRow>();
+        public string GroupExpression { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Represents a column in a tablix
+    /// </summary>
+    public class RdlcTablixColumn
+    {
+        public double Width { get; set; }
+    }
+
+    /// <summary>
+    /// Represents a row in a tablix
+    /// </summary>
+    public class RdlcTablixRow
+    {
+        public double Height { get; set; } = 0.3;
+        public List<RdlcTablixCell> Cells { get; set; } = new List<RdlcTablixCell>();
+        public bool IsStatic { get; set; } = false;
+    }
+
+    /// <summary>
+    /// Represents a cell in a tablix
+    /// </summary>
+    public class RdlcTablixCell
+    {
+        public string Value { get; set; } = "";
+        public string FontWeight { get; set; } = "Normal";
+        public string FontSize { get; set; } = "10pt";
+        public string TextAlign { get; set; } = "Left";
+        public string Name { get; set; } = "";
+    }
+
     #endregion
 
     #region Fluent Builders
@@ -516,6 +563,108 @@ namespace FluentRDLC
     }
 
     /// <summary>
+    /// Fluent builder for RDLC tablix (tables)
+    /// </summary>
+    public class TablixBuilder
+    {
+        internal RdlcTablix Tablix { get; private set; }
+
+        internal TablixBuilder(string name)
+        {
+            Tablix = new RdlcTablix { Name = name };
+        }
+
+        public TablixBuilder UsingDataSet(string dataSetName)
+        {
+            Tablix.DataSetName = dataSetName;
+            return this;
+        }
+
+        public TablixBuilder At(double left, double top)
+        {
+            Tablix.Left = left;
+            Tablix.Top = top;
+            return this;
+        }
+
+        public TablixBuilder WithSize(double width, double height)
+        {
+            Tablix.Width = width;
+            Tablix.Height = height;
+            return this;
+        }
+
+        public TablixBuilder WithBounds(double left, double top, double width, double height) =>
+            At(left, top).WithSize(width, height);
+
+        public TablixBuilder WithColumn(double width)
+        {
+            Tablix.Columns.Add(new RdlcTablixColumn { Width = width });
+            return this;
+        }
+
+        public TablixBuilder WithColumns(params double[] widths)
+        {
+            foreach (var width in widths)
+            {
+                WithColumn(width);
+            }
+            return this;
+        }
+
+        public TablixBuilder WithHeaderRow(double height, params string[] headers)
+        {
+            var headerRow = new RdlcTablixRow { Height = height, IsStatic = true };
+            foreach (var header in headers)
+            {
+                headerRow.Cells.Add(new RdlcTablixCell 
+                { 
+                    Value = header, 
+                    FontWeight = "Bold",
+                    Name = $"{header.Replace(" ", "")}Header"
+                });
+            }
+            Tablix.HeaderRows.Add(headerRow);
+            return this;
+        }
+
+        public TablixBuilder WithDataRow(double height, params string[] fieldExpressions)
+        {
+            var dataRow = new RdlcTablixRow { Height = height, IsStatic = false };
+            for (int i = 0; i < fieldExpressions.Length; i++)
+            {
+                dataRow.Cells.Add(new RdlcTablixCell 
+                { 
+                    Value = fieldExpressions[i],
+                    Name = $"DataCell{i}"
+                });
+            }
+            Tablix.DataRows.Add(dataRow);
+            return this;
+        }
+
+        public TablixBuilder WithGroupExpression(string expression)
+        {
+            Tablix.GroupExpression = expression;
+            return this;
+        }
+
+        public TablixBuilder AsInvoiceTable(string dataSetName)
+        {
+            return UsingDataSet(dataSetName)
+                .WithColumns(3.5, 0.8, 1.2, 1.2, 1.3)
+                .WithHeaderRow(0.3, "Description", "Qty", "Unit Price", "Tax", "Total")
+                .WithDataRow(0.3, 
+                    "=Fields!Description.Value",
+                    "=Fields!Quantity.Value", 
+                    "='$' + Format(Fields!UnitPrice.Value, 'N2')",
+                    "='$' + Format(Fields!TaxAmount.Value, 'N2')", 
+                    "='$' + Format(Fields!TotalWithTax.Value, 'N2')")
+                .WithGroupExpression("=Fields!Description.Value");
+        }
+    }
+
+    /// <summary>
     /// Fluent builder for RDLC charts
     /// </summary>
     public class ChartBuilder
@@ -663,6 +812,7 @@ namespace FluentRDLC
         private readonly List<ImageBuilder> _images = new List<ImageBuilder>();
         private readonly List<LineBuilder> _lines = new List<LineBuilder>();
         private readonly List<ChartBuilder> _charts = new List<ChartBuilder>();
+        private readonly List<TablixBuilder> _tablix = new List<TablixBuilder>();
         private readonly List<RdlcEmbeddedImage> _embeddedImages = new List<RdlcEmbeddedImage>();
         private ReportLayoutBuilder _layout;
         private PageSectionBuilder _header;
@@ -734,6 +884,42 @@ namespace FluentRDLC
         {
             return WithTextBox($"Field_{fieldName}_{Guid.NewGuid():N}", tb => tb
                 .WithFieldValue(fieldName)
+                .WithBounds(left, top, width, height));
+        }
+
+        public RdlcReportBuilder WithImage(string name, Action<ImageBuilder> configure)
+        {
+            var imageBuilder = new ImageBuilder(name);
+            configure(imageBuilder);
+            _images.Add(imageBuilder);
+            return this;
+        }
+
+        public RdlcReportBuilder WithEmbeddedImage(string embeddedImageName, double left, double top, double width = 2, double height = 1.5)
+        {
+            return WithImage($"Image_{embeddedImageName}_{Guid.NewGuid():N}", img => img
+                .FromEmbedded(embeddedImageName)
+                .WithBounds(left, top, width, height)
+                .FitProportional());
+        }
+
+        public RdlcReportBuilder WithLogo(string embeddedImageName, double left = 0.2, double top = 0.1)
+        {
+            return WithEmbeddedImage(embeddedImageName, left, top, 2, 1.5);
+        }
+
+        public RdlcReportBuilder WithTablix(string name, Action<TablixBuilder> configure)
+        {
+            var tablixBuilder = new TablixBuilder(name);
+            configure(tablixBuilder);
+            _tablix.Add(tablixBuilder);
+            return this;
+        }
+
+        public RdlcReportBuilder WithInvoiceTable(string dataSetName, double left, double top, double width = 8, double height = 1.5)
+        {
+            return WithTablix($"InvoiceTable_{Guid.NewGuid():N}", tablix => tablix
+                .AsInvoiceTable(dataSetName)
                 .WithBounds(left, top, width, height));
         }
 
@@ -905,6 +1091,12 @@ namespace FluentRDLC
             foreach (var chartBuilder in _charts)
             {
                 _processor.AddChart(chartBuilder.Chart);
+            }
+
+            // Add tablix
+            foreach (var tablixBuilder in _tablix)
+            {
+                _processor.AddTablix(tablixBuilder.Tablix);
             }
 
             // Apply layout
@@ -1175,6 +1367,140 @@ namespace FluentRDLC
             }
 
             reportItemsElement.Add(chartElement);
+        }
+
+        public void AddTablix(RdlcTablix tablix)
+        {
+            var reportItemsElement = GetReportItemsElement();
+            var tablixElement = new XElement(_reportNamespace + "Tablix",
+                new XAttribute("Name", tablix.Name),
+                new XElement(_reportNamespace + "DataSetName", tablix.DataSetName),
+                new XElement(_reportNamespace + "Top", $"{tablix.Top}in"),
+                new XElement(_reportNamespace + "Left", $"{tablix.Left}in"),
+                new XElement(_reportNamespace + "Height", $"{tablix.Height}in"),
+                new XElement(_reportNamespace + "Width", $"{tablix.Width}in")
+            );
+
+            // Create TablixBody
+            var tablixBody = new XElement(_reportNamespace + "TablixBody");
+
+            // Add columns
+            var tablixColumns = new XElement(_reportNamespace + "TablixColumns");
+            foreach (var column in tablix.Columns)
+            {
+                tablixColumns.Add(new XElement(_reportNamespace + "TablixColumn",
+                    new XElement(_reportNamespace + "Width", $"{column.Width}in")));
+            }
+            tablixBody.Add(tablixColumns);
+
+            // Add rows
+            var tablixRows = new XElement(_reportNamespace + "TablixRows");
+            
+            // Add header rows
+            foreach (var headerRow in tablix.HeaderRows)
+            {
+                var rowElement = new XElement(_reportNamespace + "TablixRow",
+                    new XElement(_reportNamespace + "Height", $"{headerRow.Height}in"));
+                
+                var cellsElement = new XElement(_reportNamespace + "TablixCells");
+                foreach (var cell in headerRow.Cells)
+                {
+                    var cellElement = new XElement(_reportNamespace + "TablixCell",
+                        new XElement(_reportNamespace + "CellContents",
+                            new XElement(_reportNamespace + "Textbox",
+                                new XAttribute("Name", cell.Name),
+                                new XElement(_reportNamespace + "Paragraphs",
+                                    new XElement(_reportNamespace + "Paragraph",
+                                        new XElement(_reportNamespace + "TextRuns",
+                                            new XElement(_reportNamespace + "TextRun",
+                                                new XElement(_reportNamespace + "Value", cell.Value),
+                                                new XElement(_reportNamespace + "Style",
+                                                    new XElement(_reportNamespace + "FontWeight", cell.FontWeight)
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    );
+                    cellsElement.Add(cellElement);
+                }
+                rowElement.Add(cellsElement);
+                tablixRows.Add(rowElement);
+            }
+
+            // Add data rows
+            foreach (var dataRow in tablix.DataRows)
+            {
+                var rowElement = new XElement(_reportNamespace + "TablixRow",
+                    new XElement(_reportNamespace + "Height", $"{dataRow.Height}in"));
+                
+                var cellsElement = new XElement(_reportNamespace + "TablixCells");
+                foreach (var cell in dataRow.Cells)
+                {
+                    var cellElement = new XElement(_reportNamespace + "TablixCell",
+                        new XElement(_reportNamespace + "CellContents",
+                            new XElement(_reportNamespace + "Textbox",
+                                new XAttribute("Name", cell.Name),
+                                new XElement(_reportNamespace + "Paragraphs",
+                                    new XElement(_reportNamespace + "Paragraph",
+                                        new XElement(_reportNamespace + "TextRuns",
+                                            new XElement(_reportNamespace + "TextRun",
+                                                new XElement(_reportNamespace + "Value", cell.Value)
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    );
+                    cellsElement.Add(cellElement);
+                }
+                rowElement.Add(cellsElement);
+                tablixRows.Add(rowElement);
+            }
+
+            tablixBody.Add(tablixRows);
+            tablixElement.Add(tablixBody);
+
+            // Add TablixColumnHierarchy
+            var columnHierarchy = new XElement(_reportNamespace + "TablixColumnHierarchy",
+                new XElement(_reportNamespace + "TablixMembers"));
+            var columnMembers = columnHierarchy.Element(_reportNamespace + "TablixMembers");
+            foreach (var column in tablix.Columns)
+            {
+                columnMembers.Add(new XElement(_reportNamespace + "TablixMember"));
+            }
+            tablixElement.Add(columnHierarchy);
+
+            // Add TablixRowHierarchy
+            var rowHierarchy = new XElement(_reportNamespace + "TablixRowHierarchy",
+                new XElement(_reportNamespace + "TablixMembers"));
+            var rowMembers = rowHierarchy.Element(_reportNamespace + "TablixMembers");
+            
+            // Add header row members (static)
+            foreach (var headerRow in tablix.HeaderRows)
+            {
+                rowMembers.Add(new XElement(_reportNamespace + "TablixMember",
+                    new XElement(_reportNamespace + "Static", "true")));
+            }
+            
+            // Add data row member with group
+            if (tablix.DataRows.Count > 0 && !string.IsNullOrEmpty(tablix.GroupExpression))
+            {
+                rowMembers.Add(new XElement(_reportNamespace + "TablixMember",
+                    new XElement(_reportNamespace + "Group",
+                        new XAttribute("Name", $"{tablix.Name}_Group"),
+                        new XElement(_reportNamespace + "GroupExpressions",
+                            new XElement(_reportNamespace + "GroupExpression", tablix.GroupExpression)
+                        )
+                    )
+                ));
+            }
+            
+            tablixElement.Add(rowHierarchy);
+            reportItemsElement.Add(tablixElement);
         }
 
         public void AddEmbeddedImage(RdlcEmbeddedImage embeddedImage)

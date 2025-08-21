@@ -86,7 +86,7 @@ namespace FluetRDLC.Test
         
         private string CreateInvoiceRdlcContent()
         {
-            // Create the base report structure using fluent builder
+            // Create the report using fully fluent builder - no manual XML needed!
             var reportBuilder = RdlcReportBuilder.Create("InvoiceReport")
                 // Set up page layout
                 .WithLayout(layout => layout
@@ -104,6 +104,9 @@ namespace FluetRDLC.Test
                 .WithDataSet("InvoiceItems", ds => ds
                     .UsingDataSource("InvoiceDataSource")
                     .WithFieldsFromType<InvoiceItem>())
+                
+                // Company logo image control
+                .WithLogo("CompanyLogo", 0.2, 0.1)
                 
                 // Company information section (top right)
                 .WithTextBox("CompanyInfo", tb => tb
@@ -140,6 +143,9 @@ namespace FluetRDLC.Test
                     .WithBounds(4.5, 2.8, 3.5, 1.2)
                     .WithFontSize(11))
                 
+                // Invoice items table using fluent tablix builder
+                .WithInvoiceTable("InvoiceItems", 0, 4.2, 8, 1.5)
+                
                 // Invoice totals section (bottom right)
                 .WithTextBox("InvoiceTotal", tb => tb
                     .WithExpression("='Subtotal: $' + Format(Sum(Fields!LineTotal.Value, 'InvoiceItems'), 'N2') + vbCrLf + " +
@@ -156,82 +162,8 @@ namespace FluetRDLC.Test
                                    "'For questions about this invoice, please contact us at ' + Parameters!CompanyPhone.Value")
                     .WithBounds(0, 7.0, 8, 1.0)
                     .WithFontSize(10));
-            
-            // Get the base XML and manually add the missing complex elements
-            var baseXml = reportBuilder.ToXml();
-            
-            // Add the company logo image and tablix table manually
-            // (This is a hybrid approach since the fluent builder doesn't support these complex elements)
-            var logoImageXml = @"
-          <Image Name='CompanyLogo'>
-            <Source>Embedded</Source>
-            <Value>CompanyLogo</Value>
-            <Top>0.1in</Top>
-            <Left>0.2in</Left>
-            <Height>1.5in</Height>
-            <Width>2in</Width>
-            <Sizing>FitProportional</Sizing>
-          </Image>";
-            
-            var tablixXml = @"
-      <Tablix Name='InvoiceItemsTable'>
-        <DataSetName>InvoiceItems</DataSetName>
-        <Top>4.2in</Top>
-        <Left>0in</Left>
-        <Height>1.5in</Height>
-        <Width>8in</Width>
-        <TablixBody>
-          <TablixColumns>
-            <TablixColumn><Width>3.5in</Width></TablixColumn>
-            <TablixColumn><Width>0.8in</Width></TablixColumn>
-            <TablixColumn><Width>1.2in</Width></TablixColumn>
-            <TablixColumn><Width>1.2in</Width></TablixColumn>
-            <TablixColumn><Width>1.3in</Width></TablixColumn>
-          </TablixColumns>
-          <TablixRows>
-            <TablixRow>
-              <Height>0.3in</Height>
-              <TablixCells>
-                <TablixCell><CellContents><Textbox Name='DescriptionHeader'><Paragraphs><Paragraph><TextRuns><TextRun><Value>Description</Value><Style><FontWeight>Bold</FontWeight></Style></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-                <TablixCell><CellContents><Textbox Name='QtyHeader'><Paragraphs><Paragraph><TextRuns><TextRun><Value>Qty</Value><Style><FontWeight>Bold</FontWeight></Style></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-                <TablixCell><CellContents><Textbox Name='UnitPriceHeader'><Paragraphs><Paragraph><TextRuns><TextRun><Value>Unit Price</Value><Style><FontWeight>Bold</FontWeight></Style></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-                <TablixCell><CellContents><Textbox Name='TaxHeader'><Paragraphs><Paragraph><TextRuns><TextRun><Value>Tax</Value><Style><FontWeight>Bold</FontWeight></Style></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-                <TablixCell><CellContents><Textbox Name='TotalHeader'><Paragraphs><Paragraph><TextRuns><TextRun><Value>Total</Value><Style><FontWeight>Bold</FontWeight></Style></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-              </TablixCells>
-            </TablixRow>
-            <TablixRow>
-              <Height>0.3in</Height>
-              <TablixCells>
-                <TablixCell><CellContents><Textbox Name='Description'><Paragraphs><Paragraph><TextRuns><TextRun><Value>=Fields!Description.Value</Value></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-                <TablixCell><CellContents><Textbox Name='Quantity'><Paragraphs><Paragraph><TextRuns><TextRun><Value>=Fields!Quantity.Value</Value></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-                <TablixCell><CellContents><Textbox Name='UnitPrice'><Paragraphs><Paragraph><TextRuns><TextRun><Value>='$' + Format(Fields!UnitPrice.Value, 'N2')</Value></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-                <TablixCell><CellContents><Textbox Name='TaxAmount'><Paragraphs><Paragraph><TextRuns><TextRun><Value>='$' + Format(Fields!TaxAmount.Value, 'N2')</Value></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-                <TablixCell><CellContents><Textbox Name='Total'><Paragraphs><Paragraph><TextRuns><TextRun><Value>='$' + Format(Fields!TotalWithTax.Value, 'N2')</Value></TextRun></TextRuns></Paragraph></Paragraphs></Textbox></CellContents></TablixCell>
-              </TablixCells>
-            </TablixRow>
-          </TablixRows>
-        </TablixBody>
-        <TablixColumnHierarchy>
-          <TablixMembers>
-            <TablixMember /><TablixMember /><TablixMember /><TablixMember /><TablixMember />
-          </TablixMembers>
-        </TablixColumnHierarchy>
-        <TablixRowHierarchy>
-          <TablixMembers>
-            <TablixMember><Static>true</Static></TablixMember>
-            <TablixMember><Group Name='InvoiceItemGroup'><GroupExpressions><GroupExpression>=Fields!Description.Value</GroupExpression></GroupExpressions></Group></TablixMember>
-          </TablixMembers>
-        </TablixRowHierarchy>
-      </Tablix>";
-            
-            // Insert the logo and tablix into the ReportItems section
-            var reportItemsEndIndex = baseXml.IndexOf("</ReportItems>");
-            if (reportItemsEndIndex > 0)
-            {
-                baseXml = baseXml.Insert(reportItemsEndIndex, logoImageXml + tablixXml);
-            }
-            
-            return baseXml;
+                                   
+            return reportBuilder.ToXml();
         }
         
         private static string GetOutputPath(string fileName)

@@ -235,4 +235,22 @@ public class RdlcExpressionEvaluatorTests
         var result = _evaluator.EvaluateExpression("=Format(Parameters!CurrentDate.Value, 'MM/dd/yyyy')");
         Assert.AreEqual("12/25/2024", result);
     }
+
+    [TestMethod]
+    public void EvaluateExpression_HandlesComplexInvoiceExpression()
+    {
+        _evaluator.SetParameters(new Dictionary<string, object?>
+        {
+            ["CompanyName"] = "TechSolutions LLC",
+            ["CompanyAddress"] = "123 Business Avenue",
+            ["CompanyCityState"] = "Seattle, WA 98101", 
+            ["CompanyPhone"] = "(555) 123-4567",
+            ["CompanyEmail"] = "info@techsolutions.com"
+        });
+        
+        var expression = "=Parameters!CompanyName.Value + vbCrLf + Parameters!CompanyAddress.Value + vbCrLf + Parameters!CompanyCityState.Value + vbCrLf + 'Phone: ' + Parameters!CompanyPhone.Value + vbCrLf + 'Email: ' + Parameters!CompanyEmail.Value";
+        var result = _evaluator.EvaluateExpression(expression);
+        var expected = "TechSolutions LLC\n123 Business Avenue\nSeattle, WA 98101\nPhone: (555) 123-4567\nEmail: info@techsolutions.com";
+        Assert.AreEqual(expected, result);
+    }
 }
