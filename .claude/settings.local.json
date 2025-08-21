@@ -14,7 +14,11 @@
       "Bash(del create_logo.py)",
       "Bash(del company_logo.png)",
       "Bash(del company_logo_base64.txt)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(dotnet add:*)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet remove:*)",
+      "Bash(csharp:*)"
     ],
     "deny": [],
     "ask": [],

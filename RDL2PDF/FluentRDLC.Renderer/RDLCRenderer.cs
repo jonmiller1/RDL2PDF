@@ -78,6 +78,7 @@ namespace FluentRDLC.Renderer
     {
         private readonly Dictionary<string, DataTable> _dataSources;
         private readonly Dictionary<string, object> _parameters;
+        private readonly RdlcExpressionEvaluator _expressionEvaluator;
         private XDocument? _rdlcDocument;
         private XNamespace? _rdlcNamespace;
         private DataRow? _currentDataRow;
@@ -88,23 +89,30 @@ namespace FluentRDLC.Renderer
         {
             _dataSources = [];
             _parameters = [];
+            _expressionEvaluator = new RdlcExpressionEvaluator();
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
         public void AddDataSource(string name, DataTable dataTable)
         {
             _dataSources[name] = dataTable;
+            // Update expression evaluator
+            _expressionEvaluator.SetDataSources(_dataSources);
         }
 
         public void AddObjectDataSource<T>(string name, IEnumerable<T> objects) where T : class
         {
             var dataTable = ConvertObjectsToDataTable(objects);
             _dataSources[name] = dataTable;
+            // Update expression evaluator
+            _expressionEvaluator.SetDataSources(_dataSources);
         }
 
         public void AddParameter(string name, object value)
         {
             _parameters[name] = value;
+            // Update expression evaluator
+            _expressionEvaluator.SetParameters(_parameters);
         }
 
         public byte[] RenderToPdf(string rdlcPath)
@@ -1057,6 +1065,8 @@ namespace FluentRDLC.Renderer
         private void SetCurrentDataRow(DataRow row)
         {
             _currentDataRow = row;
+            // Update expression evaluator with current row
+            _expressionEvaluator.SetCurrentRow(row);
         }
 
         [GeneratedRegex(@"=Fields!(\w+)\.Value", RegexOptions.IgnoreCase)]
@@ -1206,27 +1216,7 @@ namespace FluentRDLC.Renderer
             if (string.IsNullOrEmpty(expression))
                 return "";
 
-            var fieldMatch = FieldRegex().Match(expression);
-            if (fieldMatch.Success && _currentDataRow != null)
-            {
-                var fieldName = fieldMatch.Groups[1].Value;
-                if (_currentDataRow.Table.Columns.Contains(fieldName))
-                {
-                    return _currentDataRow[fieldName]?.ToString() ?? "";
-                }
-            }
-
-            var paramMatch = ParameterRegex().Match(expression);
-            if (paramMatch.Success)
-            {
-                var paramName = paramMatch.Groups[1].Value;
-                if (_parameters.TryGetValue(paramName, out var value))
-                {
-                    return value?.ToString() ?? "";
-                }
-            }
-
-            // Handle page number expressions
+            // Handle special cases that don't need full expression evaluation
             if (PageNumberRegex().IsMatch(expression))
             {
                 return _currentPageNumber.ToString();
@@ -1237,6 +1227,7 @@ namespace FluentRDLC.Renderer
                 return _totalPages.ToString();
             }
 
+            // Handle simple string literals and Now/Today functions
             if (expression.StartsWith('='))
             {
                 var cleanExpression = expression[1..].Trim();
@@ -1255,11 +1246,10 @@ namespace FluentRDLC.Renderer
                 {
                     return DateTime.Today.ToShortDateString();
                 }
-
-                return cleanExpression;
             }
 
-            return expression;
+            // Use the expression evaluator for all other expressions
+            return _expressionEvaluator.EvaluateExpression(expression);
         }
 
         private static DataTable ConvertObjectsToDataTable<T>(IEnumerable<T> objects) where T : class
