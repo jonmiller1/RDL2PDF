@@ -109,14 +109,49 @@ namespace FluentRDLC.Renderer
 
         public byte[] RenderToPdf(string rdlcPath)
         {
-            LoadRdlcFile(rdlcPath);
-            return GeneratePdf();
+            return Render(rdlcPath, RenderFormat.PDF);
         }
 
         public byte[] RenderToPdfFromContent(string rdlcContent)
         {
+            // Use original direct PDF generation to avoid circular dependency
             LoadRdlcContent(rdlcContent);
             return GeneratePdf();
+        }
+
+        public byte[] Render(string rdlcPath, RenderFormat format)
+        {
+            LoadRdlcFile(rdlcPath);
+            return RenderWithFormat(format);
+        }
+
+        public byte[] RenderFromContent(string rdlcContent, RenderFormat format)
+        {
+            LoadRdlcContent(rdlcContent);
+            return RenderWithFormat(format);
+        }
+
+        private byte[] RenderWithFormat(RenderFormat format)
+        {
+            var renderer = RendererFactory.CreateRenderer(format);
+            var context = CreateRenderContext();
+            return renderer.Render(context);
+        }
+
+        private RenderContext CreateRenderContext()
+        {
+            return new RenderContext
+            {
+                RdlcDocument = _rdlcDocument ?? throw new InvalidOperationException("RDLC document not loaded"),
+                RdlcNamespace = _rdlcNamespace,
+                DataSources = _dataSources,
+                Parameters = _parameters,
+                CurrentPageNumber = _currentPageNumber,
+                TotalPages = _totalPages,
+                CurrentDataRow = _currentDataRow,
+                Width = 600,
+                Height = 800
+            };
         }
 
         private void LoadRdlcFile(string rdlcPath)
@@ -710,6 +745,20 @@ namespace FluentRDLC.Renderer
                         column.Item().Text($"[Image not found: {imagePath}]").FontColor(QPDFColors.Red.Medium);
                     }
                 }
+                else if (source?.Value == "Embedded" && value != null)
+                {
+                    var embeddedImageName = value.Value;
+                    var imageData = GetEmbeddedImageData(embeddedImageName);
+                    
+                    if (imageData != null)
+                    {
+                        column.Item().Image(imageData).FitWidth();
+                    }
+                    else
+                    {
+                        column.Item().Text($"[Embedded image not found: {embeddedImageName}]").FontColor(QPDFColors.Red.Medium);
+                    }
+                }
                 else
                 {
                     column.Item().Text($"[Image: {source?.Value ?? "Unknown"}]").FontColor(QPDFColors.Grey.Medium);
@@ -718,6 +767,36 @@ namespace FluentRDLC.Renderer
             catch (Exception ex)
             {
                 column.Item().Text($"[Image Error: {ex.Message}]").FontColor(QPDFColors.Red.Medium);
+            }
+        }
+
+        private byte[]? GetEmbeddedImageData(string imageName)
+        {
+            try
+            {
+                if (_rdlcDocument?.Root == null)
+                    return null;
+
+                var embeddedImagesElement = _rdlcDocument.Root.Element(_rdlcNamespace + "EmbeddedImages");
+                if (embeddedImagesElement == null)
+                    return null;
+
+                var embeddedImage = embeddedImagesElement.Elements(_rdlcNamespace + "EmbeddedImage")
+                    .FirstOrDefault(img => img.Attribute("Name")?.Value == imageName);
+
+                if (embeddedImage == null)
+                    return null;
+
+                var imageDataElement = embeddedImage.Element(_rdlcNamespace + "ImageData");
+                if (imageDataElement?.Value == null)
+                    return null;
+
+                // Decode base64 image data
+                return Convert.FromBase64String(imageDataElement.Value);
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 

@@ -323,61 +323,6 @@ namespace FluetRDLC.Test
         }
 
         [TestMethod]
-        public void VerifyMicrochartsIntegration()
-        {
-            // Test to verify Microcharts is working by checking chart image generation
-            var chartData = CreateSalesData();
-            var renderer = new RDLCRenderer();
-            renderer.AddDataSource("TestData", chartData);
-
-            // Create a simple RDLC with a chart element
-            var rdlcContent = @"<?xml version=""1.0"" encoding=""utf-8""?>
-<Report xmlns=""http://schemas.microsoft.com/sqlserver/reporting/2016/01/reportdefinition"">
-  <Body>
-    <ReportItems>
-      <Chart Name=""TestChart"">
-        <Top>1in</Top>
-        <Left>1in</Left>
-        <Height>3in</Height>
-        <Width>4in</Width>
-        <DataSetName>TestData</DataSetName>
-        <ChartAreas>
-          <ChartArea Name=""Default"">
-            <Style />
-          </ChartArea>
-        </ChartAreas>
-        <ChartSeries>
-          <ChartSeries Name=""Series1"">
-            <Type>Column</Type>
-            <ChartDataPoints>
-              <ChartDataPoint>
-                <ChartDataPointValues>
-                  <Y>=Fields!Revenue.Value</Y>
-                  <X>=Fields!Month.Value</X>
-                </ChartDataPointValues>
-              </ChartDataPoint>
-            </ChartDataPoints>
-          </ChartSeries>
-        </ChartSeries>
-        <ChartTitles>
-          <ChartTitle>
-            <Caption>Revenue by Month</Caption>
-          </ChartTitle>
-        </ChartTitles>
-      </Chart>
-    </ReportItems>
-  </Body>
-</Report>";
-
-            var pdfBytes = renderer.RenderToPdfFromContent(rdlcContent);
-            
-            Assert.IsTrue(pdfBytes.Length > 1000, "PDF with Microcharts should be generated");
-            
-            // Save for manual verification if needed
-            File.WriteAllBytes(GetOutputPath("MicrochartsIntegrationTest.pdf"), pdfBytes);
-        }
-
-        [TestMethod]
         public void TestAllChartTypesInOneReport()
         {
             // Create a report with all chart types to test Microcharts rendering

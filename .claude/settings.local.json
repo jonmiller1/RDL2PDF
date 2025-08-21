@@ -4,9 +4,22 @@
       "mcp__ide__getDiagnostics",
       "Bash(dotnet test)",
       "Bash(dotnet test:*)",
-      "Bash(dotnet build)"
+      "Bash(dotnet build)",
+      "Bash(dir:*)",
+      "Bash(powershell:*)",
+      "Bash(dotnet run:*)",
+      "mcp__ide__executeCode",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(del create_logo.py)",
+      "Bash(del company_logo.png)",
+      "Bash(del company_logo_base64.txt)",
+      "Bash(rm:*)"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\Output 2>\\dev"
+    ]
   }
 }

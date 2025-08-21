@@ -223,5 +223,44 @@ namespace FluetRDLC.Test
                 new DashboardMetric { MetricName = "Innovation", CurrentValue = 76.4m, TargetValue = 80m, PreviousValue = 74.8m, Unit = "%", Status = "Good", MeasureDate = DateTime.Now }
             };
         }
+
+        public static List<InvoiceItem> CreateInvoiceData()
+        {
+            return new List<InvoiceItem>
+            {
+                new InvoiceItem { Description = "Professional Consulting Services", Quantity = 40, UnitPrice = 150.00m, Tax = 0.08m },
+                new InvoiceItem { Description = "Software License (Annual)", Quantity = 1, UnitPrice = 2400.00m, Tax = 0.08m },
+                new InvoiceItem { Description = "Training Sessions", Quantity = 8, UnitPrice = 300.00m, Tax = 0.08m },
+                new InvoiceItem { Description = "Technical Support", Quantity = 12, UnitPrice = 120.00m, Tax = 0.08m }
+            };
+        }
     }
+
+    #region Invoice Models
+
+    public class InvoiceItem
+    {
+        public string Description { get; set; } = "";
+        public int Quantity { get; set; }
+        public decimal UnitPrice { get; set; }
+        public decimal Tax { get; set; }
+        public decimal LineTotal => Quantity * UnitPrice;
+        public decimal TaxAmount => LineTotal * Tax;
+        public decimal TotalWithTax => LineTotal + TaxAmount;
+    }
+
+    public class Company
+    {
+        public string Name { get; set; } = "";
+        public string Address { get; set; } = "";
+        public string City { get; set; } = "";
+        public string State { get; set; } = "";
+        public string ZipCode { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Website { get; set; } = "";
+        public string TaxId { get; set; } = "";
+    }
+
+    #endregion
 }
