@@ -18,7 +18,9 @@
       "Bash(dotnet add:*)",
       "Bash(dotnet build:*)",
       "Bash(dotnet remove:*)",
-      "Bash(csharp:*)"
+      "Bash(csharp:*)",
+      "Bash(verbosity=normal)",
+      "Bash(verbosity=minimal)"
     ],
     "deny": [],
     "ask": [],

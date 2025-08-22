@@ -1007,6 +1007,19 @@ namespace FluentRDLC
             return this;
         }
 
+        public RdlcReportBuilder WithEmbeddedImageFromBytes(string name, byte[] imageBytes, string mimeType = "image/png")
+        {
+            var base64Data = Convert.ToBase64String(imageBytes);
+            
+            _embeddedImages.Add(new RdlcEmbeddedImage
+            {
+                Name = name,
+                ImageData = base64Data,
+                MimeType = mimeType
+            });
+            return this;
+        }
+
         public RdlcReportBuilder WithHeader(Action<PageSectionBuilder> configure)
         {
             _header = new PageSectionBuilder();
