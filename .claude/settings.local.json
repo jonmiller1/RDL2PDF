@@ -20,7 +20,14 @@
       "Bash(dotnet remove:*)",
       "Bash(csharp:*)",
       "Bash(verbosity=normal)",
-      "Bash(verbosity=minimal)"
+      "Bash(verbosity=minimal)",
+      "Bash(dotnet clean:*)",
+      "Bash(timeout 30 dotnet test --filter \"GenerateFancyInvoice_CreatesProfessionalInvoicePDF\" --logger \"console;verbosity=detailed\")",
+      "Bash(ren:*)",
+      "Bash(mv:*)",
+      "Bash(dotnet new:*)",
+      "Bash(rg:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": [],

@@ -1,15 +1,19 @@
-using QuestPDF.Fluent;
-using QuestPDF.Helpers;
-using QuestPDF.Infrastructure;
+using iText.Kernel.Pdf;
+using iText.Kernel.Pdf.Canvas;
+using iText.Kernel.Colors;
+using iText.Kernel.Font;
+using iText.Kernel.Geom;
+using iText.Layout;
+using iText.Layout.Element;
+using iText.Layout.Properties;
+using iText.IO.Font.Constants;
 using System.Data;
-using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using ScottPlot;
-using QPDFColors = QuestPDF.Helpers.Colors;
 
 namespace FluentRDLC.Renderer.Renderers
 {
-    public partial class PdfRenderer : IRenderer
+    public class PdfRenderer : IRenderer
     {
         public RenderFormat Format => RenderFormat.PDF;
 
@@ -18,181 +22,236 @@ namespace FluentRDLC.Renderer.Renderers
 
         public byte[] Render(RenderContext context)
         {
-            var document = QuestPDF.Fluent.Document.Create(container =>
-            {
-                container.Page(page =>
-                {
-                    page.Size(PageSizes.A4);
-                    page.Margin(1, Unit.Centimetre);
-                    page.PageColor(QPDFColors.White);
-                    page.DefaultTextStyle(x => x.FontSize(10));
-
-                    // Header
-                    var pageHeader = context.RdlcDocument.Root?.Element(context.RdlcNamespace + "PageHeader");
-                    if (pageHeader != null)
-                    {
-                        page.Header().Container().Column(column =>
-                        {
-                            RenderReportItems(column, pageHeader, context);
-                        });
-                    }
-
-                    // Footer  
-                    var pageFooter = context.RdlcDocument.Root?.Element(context.RdlcNamespace + "PageFooter");
-                    if (pageFooter != null)
-                    {
-                        page.Footer().Container().Column(column =>
-                        {
-                            RenderReportItems(column, pageFooter, context);
-                        });
-                    }
-
-                    page.Content().Column(column =>
-                    {
-                        var reportElement = context.RdlcDocument.Root?.Element(context.RdlcNamespace + "Body");
-                        if (reportElement != null)
-                        {
-                            RenderReportItems(column, reportElement, context);
-                        }
-                    });
-                });
-            });
-
-            return document.GeneratePdf();
+            using var stream = new MemoryStream();
+            
+            // Create PDF document
+            using var writer = new PdfWriter(stream);
+            using var pdf = new PdfDocument(writer);
+            using var document = new Document(pdf);
+            
+            // Extract page settings from RDLC
+            var pageWidth = ParseDimension(context.RdlcDocument.Root?.Element(context.RdlcNamespace + "PageWidth")?.Value ?? "8.5in");
+            var pageHeight = ParseDimension(context.RdlcDocument.Root?.Element(context.RdlcNamespace + "PageHeight")?.Value ?? "11in");
+            
+            // Set page size
+            pdf.SetDefaultPageSize(new PageSize(pageWidth, pageHeight));
+            
+            // Get canvas for low-level drawing
+            var page = pdf.AddNewPage();
+            var canvas = new PdfCanvas(page);
+            
+            // Render RDLC elements
+            RenderRdlcElements(canvas, document, context, pageWidth, pageHeight);
+            
+            document.Close();
+            return stream.ToArray();
         }
 
-        private void RenderReportItems(ColumnDescriptor column, XElement parent, RenderContext context)
+        private void RenderRdlcElements(PdfCanvas canvas, Document document, RenderContext context, float pageWidth, float pageHeight)
+        {
+            // Find the Body element in the RDLC
+            var bodyElement = context.RdlcDocument.Root?.Element(context.RdlcNamespace + "Body");
+            if (bodyElement == null)
+            {
+                Console.WriteLine("DEBUG: No Body element found in RDLC");
+                return;
+            }
+
+            // Start rendering from the Body's ReportItems
+            RenderReportItems(canvas, document, bodyElement, context, pageWidth, pageHeight);
+        }
+
+        private void RenderReportItems(PdfCanvas canvas, Document document, XElement parent, RenderContext context, float pageWidth, float pageHeight)
         {
             var reportItemsElement = parent.Element(context.RdlcNamespace + "ReportItems");
-            if (reportItemsElement == null) return;
-
-            foreach (var item in reportItemsElement.Elements())
+            if (reportItemsElement == null)
             {
-                if (item.Name.LocalName == "Textbox")
-                {
-                    RenderTextbox(column, item, context);
-                }
-                else if (item.Name.LocalName == "Tablix")
-                {
-                    RenderTablix(column, item, context);
-                }
-                else if (item.Name.LocalName == "Chart")
-                {
-                    RenderChart(column, item, context);
-                }
-                else if (item.Name.LocalName == "GaugePanel")
-                {
-                    RenderGaugePanel(column, item, context);
-                }
-                else if (item.Name.LocalName == "Image")
-                {
-                    RenderImage(column, item, context);
-                }
+                Console.WriteLine("DEBUG: No ReportItems found");
+                return;
+            }
+
+            var items = reportItemsElement.Elements().ToList();
+            Console.WriteLine($"DEBUG: Found {items.Count} report items");
+
+            // Render in order: Rectangles first (backgrounds), then other items
+            var rectangles = items.Where(i => i.Name.LocalName == "Rectangle").ToList();
+            var otherItems = items.Where(i => i.Name.LocalName != "Rectangle").ToList();
+
+            // First render all rectangles as backgrounds
+            foreach (var item in rectangles)
+            {
+                Console.WriteLine($"DEBUG: Processing background: {item.Name.LocalName}");
+                RenderSingleItem(canvas, document, item, context, pageWidth, pageHeight);
+            }
+
+            // Then render all other items on top
+            foreach (var item in otherItems)
+            {
+                Console.WriteLine($"DEBUG: Processing item: {item.Name.LocalName}");
+                RenderSingleItem(canvas, document, item, context, pageWidth, pageHeight);
             }
         }
 
-        private void RenderTextbox(ColumnDescriptor column, XElement textboxElement, RenderContext context)
+        private void RenderSingleItem(PdfCanvas canvas, Document document, XElement item, RenderContext context, float pageWidth, float pageHeight)
         {
-            var valueElement = textboxElement.Element(context.RdlcNamespace + "Paragraphs")?.Element(context.RdlcNamespace + "Paragraph")?.Element(context.RdlcNamespace + "TextRuns")?.Element(context.RdlcNamespace + "TextRun")?.Element(context.RdlcNamespace + "Value");
+            var bounds = ExtractBounds(item, context);
+            if (bounds == null)
+            {
+                Console.WriteLine($"DEBUG: No bounds found for item: {item.Name.LocalName}");
+                return;
+            }
+
+            // Convert coordinates to PDF coordinate system (origin at bottom-left)
+            var x = bounds.Left;
+            var y = pageHeight - bounds.Top - bounds.Height; // Flip Y coordinate
+            var width = bounds.Width;
+            var height = bounds.Height;
+
+            Console.WriteLine($"DEBUG: Item bounds: ({x}, {y}, {width}, {height})");
+
+            switch (item.Name.LocalName)
+            {
+                case "Textbox":
+                    RenderTextbox(canvas, document, item, context, x, y, width, height);
+                    break;
+                case "Tablix":
+                    RenderTablix(canvas, document, item, context, x, y, width, height);
+                    break;
+                case "Rectangle":
+                    RenderRectangle(canvas, document, item, context, x, y, width, height);
+                    break;
+                case "Image":
+                    RenderImage(canvas, document, item, context, x, y, width, height);
+                    break;
+            }
+        }
+
+        private void RenderTextbox(PdfCanvas canvas, Document document, XElement textboxElement, RenderContext context, float x, float y, float width, float height)
+        {
+            var valueElement = textboxElement.Element(context.RdlcNamespace + "Paragraphs")
+                ?.Element(context.RdlcNamespace + "Paragraph")
+                ?.Element(context.RdlcNamespace + "TextRuns")
+                ?.Element(context.RdlcNamespace + "TextRun")
+                ?.Element(context.RdlcNamespace + "Value");
 
             if (valueElement != null)
             {
                 var text = ProcessTextValue(valueElement.Value, context);
-                column.Item().Text(text);
+                var style = ExtractTextStyle(textboxElement, context);
+                
+                // Set font
+                var font = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+                if (style.Bold)
+                    font = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+                
+                // Set color
+                var color = ColorConstants.BLACK;
+                if (!string.IsNullOrEmpty(style.Color))
+                {
+                    color = ParseColor(style.Color);
+                }
+                
+                canvas.BeginText()
+                      .SetFont(font, style.FontSize)
+                      .SetColor(color, true)
+                      .MoveText(x, y + height - style.FontSize) // Adjust for text baseline
+                      .ShowText(text)
+                      .EndText();
             }
         }
 
-        private void RenderTablix(ColumnDescriptor column, XElement tablixElement, RenderContext context)
+        private void RenderTablix(PdfCanvas canvas, Document document, XElement tablixElement, RenderContext context, float x, float y, float width, float height)
         {
             var dataSetName = tablixElement.Element(context.RdlcNamespace + "DataSetName")?.Value;
+            
             if (string.IsNullOrEmpty(dataSetName) || !context.DataSources.ContainsKey(dataSetName))
+            {
+                // Render "NO DATA" message
+                var font = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+                canvas.BeginText()
+                      .SetFont(font, 12)
+                      .SetColor(ColorConstants.RED, true)
+                      .MoveText(x, y + height/2)
+                      .ShowText("NO DATA")
+                      .EndText();
                 return;
+            }
 
             var dataTable = context.DataSources[dataSetName];
-            var headerElement = tablixElement.Element(context.RdlcNamespace + "TablixBody")?.Element(context.RdlcNamespace + "TablixRows")?.Elements().FirstOrDefault();
-            var columnsElement = tablixElement.Element(context.RdlcNamespace + "TablixColumnHierarchy")?.Element(context.RdlcNamespace + "TablixMembers");
-
-            if (headerElement != null && columnsElement != null)
+            
+            // Draw table header
+            DrawRectangle(canvas, x, y + height - 20, width, 20, ColorConstants.LIGHT_GRAY, ColorConstants.BLACK);
+            
+            var font = PdfFontFactory.CreateFont(StandardFonts.HELVETICA_BOLD);
+            canvas.BeginText()
+                  .SetFont(font, 10)
+                  .SetColor(ColorConstants.BLACK, true)
+                  .MoveText(x + 5, y + height - 15)
+                  .ShowText("SKU")
+                  .MoveText(60, 0)
+                  .ShowText("DESCRIPTION")
+                  .MoveText(200, 0)
+                  .ShowText("QTY")
+                  .MoveText(40, 0)
+                  .ShowText("PRICE")
+                  .MoveText(60, 0)
+                  .ShowText("SUBTOTAL")
+                  .EndText();
+            
+            // Draw table rows
+            var rowHeight = 18f;
+            var currentY = y + height - 20 - rowHeight;
+            var rowFont = PdfFontFactory.CreateFont(StandardFonts.HELVETICA);
+            
+            foreach (DataRow row in dataTable.Rows)
             {
-                column.Item().Table(table =>
-                {
-                    var columnCount = columnsElement.Elements().Count();
-                    table.ColumnsDefinition(columns =>
-                    {
-                        for (int i = 0; i < columnCount; i++)
-                        {
-                            columns.RelativeColumn();
-                        }
-                    });
-
-                    // Header
-                    table.Header(header =>
-                    {
-                        var headerCells = headerElement.Element(context.RdlcNamespace + "TablixCells")?.Elements();
-                        if (headerCells != null)
-                        {
-                            foreach (var cell in headerCells)
-                            {
-                                var cellTextElement = cell.Element(context.RdlcNamespace + "CellContents")?.Element(context.RdlcNamespace + "Textbox")?.Element(context.RdlcNamespace + "Paragraphs")?.Element(context.RdlcNamespace + "Paragraph")?.Element(context.RdlcNamespace + "TextRuns")?.Element(context.RdlcNamespace + "TextRun")?.Element(context.RdlcNamespace + "Value");
-                                
-                                var cellText = cellTextElement?.Value ?? "";
-                                header.Cell().Element(container =>
-                                {
-                                    container.Border(1).Padding(5).Text(cellText).Bold();
-                                });
-                            }
-                        }
-                    });
-
-                    // Data rows
-                    foreach (DataRow row in dataTable.Rows)
-                    {
-                        context.CurrentDataRow = row;
-                        var dataCells = headerElement.Element(context.RdlcNamespace + "TablixCells")?.Elements();
-                        if (dataCells != null)
-                        {
-                            foreach (var cell in dataCells)
-                            {
-                                var cellTextElement = cell.Element(context.RdlcNamespace + "CellContents")?.Element(context.RdlcNamespace + "Textbox")?.Element(context.RdlcNamespace + "Paragraphs")?.Element(context.RdlcNamespace + "Paragraph")?.Element(context.RdlcNamespace + "TextRuns")?.Element(context.RdlcNamespace + "TextRun")?.Element(context.RdlcNamespace + "Value");
-                                
-                                var cellText = ProcessTextValue(cellTextElement?.Value ?? "", context);
-                                table.Cell().Element(container =>
-                                {
-                                    container.Border(1).Padding(5).Text(cellText);
-                                });
-                            }
-                        }
-                    }
-                });
+                context.CurrentDataRow = row;
+                
+                // Draw row background
+                DrawRectangle(canvas, x, currentY, width, rowHeight, ColorConstants.WHITE, ColorConstants.BLACK);
+                
+                // Draw row data
+                canvas.BeginText()
+                      .SetFont(rowFont, 9)
+                      .SetColor(ColorConstants.BLACK, true)
+                      .MoveText(x + 5, currentY + 6)
+                      .ShowText(row["SKU"]?.ToString() ?? "")
+                      .MoveText(60, 0)
+                      .ShowText(TruncateString(row["Description"]?.ToString() ?? "", 25))
+                      .MoveText(200, 0)
+                      .ShowText(row["Quantity"]?.ToString() ?? "")
+                      .MoveText(40, 0)
+                      .ShowText(string.Format("€{0:N2}", row["UnitPrice"]))
+                      .MoveText(60, 0)
+                      .ShowText(string.Format("€{0:N2}", row["Subtotal"]))
+                      .EndText();
+                
+                currentY -= rowHeight;
+                if (currentY < y) break; // Don't draw outside bounds
             }
         }
 
-        private void RenderChart(ColumnDescriptor column, XElement chartElement, RenderContext context)
+        private void RenderRectangle(PdfCanvas canvas, Document document, XElement rectangleElement, RenderContext context, float x, float y, float width, float height)
         {
-            try
+            var backgroundColor = ExtractBackgroundColor(rectangleElement, context);
+            var fillColor = ColorConstants.WHITE;
+            
+            if (!string.IsNullOrEmpty(backgroundColor))
             {
-                var chartData = ExtractChartData(chartElement, context);
-                if (chartData == null) return;
-
-                var chartImage = RenderChartToImage(chartData);
-                if (chartImage != null)
-                {
-                    column.Item().Image(chartImage);
-                }
+                fillColor = ParseColor(backgroundColor);
             }
-            catch
+            
+            DrawRectangle(canvas, x, y, width, height, fillColor, ColorConstants.BLACK);
+            
+            // Handle nested ReportItems
+            var reportItems = rectangleElement.Element(context.RdlcNamespace + "ReportItems");
+            if (reportItems != null)
             {
-                column.Item().Text("Chart rendering failed").FontColor(QPDFColors.Red.Medium);
+                RenderReportItems(canvas, document, rectangleElement, context, x + width, y + height);
             }
         }
 
-        private void RenderGaugePanel(ColumnDescriptor column, XElement gaugePanelElement, RenderContext context)
-        {
-            // Indicators are no longer supported after removing SkiaSharp
-            column.Item().Text("Gauge rendering not supported").FontColor(QPDFColors.Grey.Medium);
-        }
-
-        private void RenderImage(ColumnDescriptor column, XElement imageElement, RenderContext context)
+        private void RenderImage(PdfCanvas canvas, Document document, XElement imageElement, RenderContext context, float x, float y, float width, float height)
         {
             var sourceElement = imageElement.Element(context.RdlcNamespace + "Source");
             if (sourceElement?.Value == "Embedded")
@@ -201,7 +260,10 @@ namespace FluentRDLC.Renderer.Renderers
                 if (valueElement != null)
                 {
                     var imageName = valueElement.Value;
-                    var embeddedImage = context.RdlcDocument.Root?.Element(context.RdlcNamespace + "EmbeddedImages")?.Elements(context.RdlcNamespace + "EmbeddedImage")?.FirstOrDefault(x => x.Attribute("Name")?.Value == imageName);
+                    var embeddedImage = context.RdlcDocument.Root?
+                        .Element(context.RdlcNamespace + "EmbeddedImages")?
+                        .Elements(context.RdlcNamespace + "EmbeddedImage")?
+                        .FirstOrDefault(x => x.Attribute("Name")?.Value == imageName);
                     
                     if (embeddedImage != null)
                     {
@@ -211,301 +273,216 @@ namespace FluentRDLC.Renderer.Renderers
                             try
                             {
                                 var imageBytes = Convert.FromBase64String(imageDataElement.Value);
-                                column.Item().Image(imageBytes);
+                                var imageData = iText.IO.Image.ImageDataFactory.Create(imageBytes);
+                                var image = new iText.Layout.Element.Image(imageData);
+                                
+                                // Scale image to fit bounds
+                                image.ScaleToFit(width, height);
+                                image.SetFixedPosition(x, y);
+                                
+                                document.Add(image);
                             }
-                            catch
+                            catch (Exception ex)
                             {
-                                column.Item().Text("Image could not be loaded").FontColor(QPDFColors.Red.Medium);
+                                Console.WriteLine($"Image rendering error: {ex.Message}");
+                                // Draw placeholder rectangle
+                                DrawRectangle(canvas, x, y, width, height, ColorConstants.LIGHT_GRAY, ColorConstants.BLACK);
                             }
                         }
                     }
                 }
             }
+        }
+
+        private void DrawRectangle(PdfCanvas canvas, float x, float y, float width, float height, iText.Kernel.Colors.Color fillColor, iText.Kernel.Colors.Color strokeColor)
+        {
+            canvas.SaveState()
+                  .SetFillColor(fillColor)
+                  .SetStrokeColor(strokeColor)
+                  .SetLineWidth(0.5f)
+                  .Rectangle(x, y, width, height)
+                  .FillStroke()
+                  .RestoreState();
+        }
+
+        private iText.Kernel.Colors.Color ParseColor(string colorString)
+        {
+            if (string.IsNullOrEmpty(colorString))
+                return ColorConstants.BLACK;
+                
+            return colorString.ToLower() switch
+            {
+                "white" => ColorConstants.WHITE,
+                "black" => ColorConstants.BLACK,
+                "red" => ColorConstants.RED,
+                "green" => ColorConstants.GREEN,
+                "blue" => ColorConstants.BLUE,
+                "yellow" => ColorConstants.YELLOW,
+                "gray" or "grey" => ColorConstants.GRAY,
+                "lightgray" or "lightgrey" => ColorConstants.LIGHT_GRAY,
+                "#e8e8e8" => new DeviceRgb(232, 232, 232),
+                "#f4d03f" => new DeviceRgb(244, 208, 63),
+                "#4a9b8e" => new DeviceRgb(74, 155, 142),
+                _ when colorString.StartsWith("#") => ParseHexColor(colorString),
+                _ => ColorConstants.BLACK
+            };
+        }
+
+        private iText.Kernel.Colors.Color ParseHexColor(string hex)
+        {
+            if (hex.Length == 7 && hex.StartsWith("#"))
+            {
+                try
+                {
+                    var r = Convert.ToInt32(hex.Substring(1, 2), 16);
+                    var g = Convert.ToInt32(hex.Substring(3, 2), 16);
+                    var b = Convert.ToInt32(hex.Substring(5, 2), 16);
+                    return new DeviceRgb(r, g, b);
+                }
+                catch
+                {
+                    return ColorConstants.BLACK;
+                }
+            }
+            return ColorConstants.BLACK;
+        }
+
+        private string TruncateString(string input, int maxLength)
+        {
+            if (string.IsNullOrEmpty(input) || input.Length <= maxLength)
+                return input;
+            return input.Substring(0, maxLength - 3) + "...";
+        }
+
+        private ItemBounds? ExtractBounds(XElement element, RenderContext context)
+        {
+            var topElement = element.Element(context.RdlcNamespace + "Top");
+            var leftElement = element.Element(context.RdlcNamespace + "Left");
+            var heightElement = element.Element(context.RdlcNamespace + "Height");
+            var widthElement = element.Element(context.RdlcNamespace + "Width");
+
+            if (topElement != null && leftElement != null && heightElement != null && widthElement != null)
+            {
+                return new ItemBounds
+                {
+                    Top = ParseDimension(topElement.Value),
+                    Left = ParseDimension(leftElement.Value),
+                    Height = ParseDimension(heightElement.Value),
+                    Width = ParseDimension(widthElement.Value)
+                };
+            }
+
+            return null;
+        }
+
+        private float ParseDimension(string dimension)
+        {
+            if (string.IsNullOrEmpty(dimension)) return 0;
+
+            if (dimension.EndsWith("in"))
+            {
+                if (float.TryParse(dimension[..^2], out var inches))
+                    return inches * 72; // Convert inches to points
+            }
+            else if (dimension.EndsWith("pt"))
+            {
+                if (float.TryParse(dimension[..^2], out var points))
+                    return points;
+            }
+            else if (dimension.EndsWith("cm"))
+            {
+                if (float.TryParse(dimension[..^2], out var cm))
+                    return cm * 28.35f; // Convert cm to points
+            }
+
+            // Try to parse as plain number (assume inches)
+            if (float.TryParse(dimension, out var value))
+                return value * 72;
+
+            return 0;
+        }
+
+        private TextStyle ExtractTextStyle(XElement textboxElement, RenderContext context)
+        {
+            var style = new TextStyle();
+            
+            var styleElement = textboxElement.Element(context.RdlcNamespace + "Paragraphs")?
+                .Element(context.RdlcNamespace + "Paragraph")?
+                .Element(context.RdlcNamespace + "TextRuns")?
+                .Element(context.RdlcNamespace + "TextRun")?
+                .Element(context.RdlcNamespace + "Style");
+
+            if (styleElement != null)
+            {
+                var fontSizeElement = styleElement.Element(context.RdlcNamespace + "FontSize");
+                if (fontSizeElement != null && fontSizeElement.Value.EndsWith("pt"))
+                {
+                    if (float.TryParse(fontSizeElement.Value[..^2], out var fontSize))
+                        style.FontSize = fontSize;
+                }
+
+                var fontWeightElement = styleElement.Element(context.RdlcNamespace + "FontWeight");
+                if (fontWeightElement?.Value == "Bold")
+                    style.Bold = true;
+
+                var colorElement = styleElement.Element(context.RdlcNamespace + "Color");
+                if (colorElement != null)
+                    style.Color = colorElement.Value;
+            }
+
+            return style;
+        }
+
+        private string ExtractBackgroundColor(XElement element, RenderContext context)
+        {
+            var styleElement = element.Element(context.RdlcNamespace + "Style");
+            if (styleElement == null) return "";
+            
+            var backgroundColorElement = styleElement.Element(context.RdlcNamespace + "BackgroundColor");
+            if (backgroundColorElement == null) return "";
+            
+            return backgroundColorElement.Value;
         }
 
         private string ProcessTextValue(string value, RenderContext context)
         {
             if (string.IsNullOrEmpty(value)) return "";
 
-            // Process field references
-            value = FieldRegex().Replace(value, match =>
-            {
-                var fieldName = match.Groups[1].Value;
-                if (context.CurrentDataRow != null && context.CurrentDataRow.Table.Columns.Contains(fieldName))
-                {
-                    return context.CurrentDataRow[fieldName]?.ToString() ?? "";
-                }
-                return match.Value;
-            });
-
-            // Process parameters
-            value = ParameterRegex().Replace(value, match =>
-            {
-                var paramName = match.Groups[1].Value;
-                if (context.Parameters.ContainsKey(paramName))
-                {
-                    return context.Parameters[paramName]?.ToString() ?? "";
-                }
-                return match.Value;
-            });
-
-            // Process page numbers
-            value = PageNumberRegex().Replace(value, context.CurrentPageNumber.ToString());
-
-            return value;
-        }
-
-        private ChartDefinition? ExtractChartData(XElement chartElement, RenderContext context)
-        {
-            var dataSetName = GetDataSetName(chartElement, context);
-            if (string.IsNullOrEmpty(dataSetName) || !context.DataSources.ContainsKey(dataSetName))
-                return null;
-
-            var dataTable = context.DataSources[dataSetName];
-            var chartDef = new ChartDefinition
-            {
-                Title = GetChartTitle(chartElement, context),
-                ChartType = GetChartType(chartElement, context),
-                Width = 600,
-                Height = 400
-            };
-
-            foreach (DataRow row in dataTable.Rows)
-            {
-                context.CurrentDataRow = row;
-                var seriesData = ParseChartSeriesFromData(chartElement, row, context);
-                if (seriesData != null)
-                {
-                    var existingSeries = chartDef.Series.FirstOrDefault(s => s.Name == seriesData.Name);
-                    if (existingSeries == null)
-                    {
-                        chartDef.Series.Add(seriesData);
-                    }
-                    else
-                    {
-                        existingSeries.DataPoints.AddRange(seriesData.DataPoints);
-                    }
-                }
-            }
-
-            return chartDef;
-        }
-
-        private ChartType GetChartType(XElement chartElement, RenderContext context)
-        {
-            var chartTypeElement = chartElement.Element(context.RdlcNamespace + "ChartSeriesCollection")?.Element(context.RdlcNamespace + "ChartSeries")?.Element(context.RdlcNamespace + "Type");
+            // Use the proper RdlcExpressionEvaluator
+            var evaluator = new RdlcExpressionEvaluator();
+            evaluator.SetDataSources(context.DataSources);
+            evaluator.SetParameters(context.Parameters);
             
-            return chartTypeElement?.Value?.ToLower() switch
+            // Set current row context for field evaluation
+            if (context.CurrentDataRow != null)
             {
-                "column" => ChartType.Column,
-                "bar" => ChartType.Bar,
-                "line" => ChartType.Line,
-                "pie" => ChartType.Pie,
-                "area" => ChartType.Area,
-                _ => ChartType.Column
-            };
-        }
-
-        private byte[]? RenderChartToImage(ChartDefinition chartDef)
-        {
-            try
-            {
-                var plt = new Plot();
-                
-                switch (chartDef.ChartType)
-                {
-                    case ChartType.Column:
-                        CreateColumnChart(plt, chartDef);
-                        break;
-                    case ChartType.Bar:
-                        CreateBarChart(plt, chartDef);
-                        break;
-                    case ChartType.Line:
-                        CreateLineChart(plt, chartDef);
-                        break;
-                    case ChartType.Pie:
-                        CreatePieChart(plt, chartDef);
-                        break;
-                    case ChartType.Area:
-                        CreateAreaChart(plt, chartDef);
-                        break;
-                    default:
-                        CreateColumnChart(plt, chartDef);
-                        break;
-                }
-                
-                var image = plt.GetImage(chartDef.Width, chartDef.Height);
-                return image.GetImageBytes();
+                var dataSetName = GetCurrentDataSetName(context);
+                evaluator.SetCurrentRow(context.CurrentDataRow, dataSetName);
             }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private void CreateColumnChart(Plot plt, ChartDefinition chartDef)
-        {
-            if (chartDef.Series.Count > 0)
-            {
-                var series = chartDef.Series[0];
-                var positions = Enumerable.Range(0, series.DataPoints.Count).Select(x => (double)x).ToArray();
-                var values = series.DataPoints.Select(p => p.Value).ToArray();
-                var labels = series.DataPoints.Select(p => p.Category).ToArray();
-
-                plt.Add.Bars(positions, values);
-                plt.Axes.Bottom.SetTicks(positions, labels);
-                plt.Title(chartDef.Title);
-            }
-        }
-
-        private void CreateBarChart(Plot plt, ChartDefinition chartDef)
-        {
-            if (chartDef.Series.Count > 0)
-            {
-                var series = chartDef.Series[0];
-                var positions = Enumerable.Range(0, series.DataPoints.Count).Select(x => (double)x).ToArray();
-                var values = series.DataPoints.Select(p => p.Value).ToArray();
-                var labels = series.DataPoints.Select(p => p.Category).ToArray();
-
-                var bars = plt.Add.Bars(positions, values);
-                bars.Horizontal = true;
-                plt.Axes.Left.SetTicks(positions, labels);
-                plt.Title(chartDef.Title);
-            }
-        }
-
-        private void CreateLineChart(Plot plt, ChartDefinition chartDef)
-        {
-            if (chartDef.Series.Count > 0)
-            {
-                var series = chartDef.Series[0];
-                var positions = Enumerable.Range(0, series.DataPoints.Count).Select(x => (double)x).ToArray();
-                var values = series.DataPoints.Select(p => p.Value).ToArray();
-                var labels = series.DataPoints.Select(p => p.Category).ToArray();
-
-                plt.Add.ScatterLine(positions, values);
-                plt.Axes.Bottom.SetTicks(positions, labels);
-                plt.Title(chartDef.Title);
-            }
-        }
-
-        private void CreatePieChart(Plot plt, ChartDefinition chartDef)
-        {
-            if (chartDef.Series.Count > 0)
-            {
-                var series = chartDef.Series[0];
-                var values = series.DataPoints.Select(p => p.Value).ToArray();
-                var labels = series.DataPoints.Select(p => p.Category).ToArray();
-
-                var pie = plt.Add.Pie(values);
-                plt.Title(chartDef.Title);
-                plt.Axes.Frameless();
-            }
-        }
-
-        private void CreateAreaChart(Plot plt, ChartDefinition chartDef)
-        {
-            if (chartDef.Series.Count > 0)
-            {
-                var series = chartDef.Series[0];
-                var positions = Enumerable.Range(0, series.DataPoints.Count).Select(x => (double)x).ToArray();
-                var values = series.DataPoints.Select(p => p.Value).ToArray();
-                var labels = series.DataPoints.Select(p => p.Category).ToArray();
-
-                plt.Add.Polygon(positions.Zip(values, (x, y) => new ScottPlot.Coordinates(x, y)).ToArray());
-                plt.Axes.Bottom.SetTicks(positions, labels);
-                plt.Title(chartDef.Title);
-            }
-        }
-
-        [GeneratedRegex(@"=Fields!(\w+)\.Value", RegexOptions.IgnoreCase)]
-        private static partial Regex FieldRegex();
-
-        [GeneratedRegex(@"=Parameters!(\w+)\.Value", RegexOptions.IgnoreCase)]
-        private static partial Regex ParameterRegex();
-
-        [GeneratedRegex(@"=PageNumber", RegexOptions.IgnoreCase)]
-        private static partial Regex PageNumberRegex();
-
-        private string GetDataSetName(XElement element, RenderContext context)
-        {
-            var dataSetName = element.Element(context.RdlcNamespace + "DataSetName");
-            return dataSetName?.Value ?? "";
-        }
-
-        private string GetChartTitle(XElement chartElement, RenderContext context)
-        {
-            var title = chartElement.Descendants(context.RdlcNamespace + "Title").FirstOrDefault();
-            var caption = title?.Element(context.RdlcNamespace + "Caption");
-            if (caption != null)
-            {
-                return ProcessTextValue(caption.Value, context);
-            }
-            return "Chart";
-        }
-
-        private ChartSeriesData? ParseChartSeriesFromData(XElement chartElement, DataRow dataRow, RenderContext context)
-        {
-            var seriesData = new ChartSeriesData();
-            seriesData.Name = "Series";
-
-            var chartSeries = chartElement.Element(context.RdlcNamespace + "ChartSeriesCollection")?.Element(context.RdlcNamespace + "ChartSeries");
-            if (chartSeries != null)
-            {
-                var nameElement = chartSeries.Element(context.RdlcNamespace + "Name");
-                if (nameElement != null)
-                {
-                    seriesData.Name = ProcessTextValue(nameElement.Value, context);
-                }
-
-                var chartDataPoints = chartSeries.Element(context.RdlcNamespace + "ChartDataPoints");
-                if (chartDataPoints != null)
-                {
-                    var dataPoint = chartDataPoints.Element(context.RdlcNamespace + "ChartDataPoint");
-                    if (dataPoint != null)
-                    {
-                        var point = ParseDataPoint(dataPoint, dataRow, context);
-                        if (point != null)
-                        {
-                            seriesData.DataPoints.Add(point);
-                        }
-                    }
-                }
-            }
-
-            return seriesData.DataPoints.Count > 0 ? seriesData : null;
-        }
-
-        private ChartDataPoint? ParseDataPoint(XElement dataPointElement, DataRow dataRow, RenderContext context)
-        {
-            var dataValues = dataPointElement.Element(context.RdlcNamespace + "ChartDataPointValues");
-            if (dataValues == null) return null;
-
-            var yValue = dataValues.Element(context.RdlcNamespace + "Y");
-            if (yValue == null) return null;
-
-            var point = new ChartDataPoint();
-
-            var yExpression = yValue.Value;
-            var yValueStr = ProcessTextValue(yExpression, context);
             
-            if (double.TryParse(yValueStr, out var yVal))
-            {
-                point.Value = yVal;
-            }
-            else
-            {
-                return null;
-            }
+            return evaluator.EvaluateExpression(value);
+        }
 
-            var xValue = dataValues.Element(context.RdlcNamespace + "X");
-            if (xValue != null)
-            {
-                var xExpression = xValue.Value;
-                point.Category = ProcessTextValue(xExpression, context);
-            }
+        private string GetCurrentDataSetName(RenderContext context)
+        {
+            // Try to determine the current dataset name from the data sources
+            // For now, use the first available dataset name
+            return context.DataSources.Keys.FirstOrDefault() ?? "";
+        }
 
-            return point;
+        private class ItemBounds
+        {
+            public float Top { get; set; }
+            public float Left { get; set; }
+            public float Height { get; set; }
+            public float Width { get; set; }
+        }
+
+        private class TextStyle
+        {
+            public float FontSize { get; set; } = 12;
+            public bool Bold { get; set; }
+            public string Color { get; set; } = "";
         }
     }
 }

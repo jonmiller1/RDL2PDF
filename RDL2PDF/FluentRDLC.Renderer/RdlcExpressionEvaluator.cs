@@ -41,12 +41,27 @@ public class RdlcExpressionEvaluator
         if (string.IsNullOrWhiteSpace(expression))
             return string.Empty;
 
-        // Remove leading = if present
-        if (expression.StartsWith("="))
-            expression = expression[1..];
+        return EvaluateExpression(expression, _currentRow, _currentDataSetName);
+    }
 
+    public string EvaluateExpression(string expression, DataRow? currentRow, string? dataSetName = null)
+    {
+        if (string.IsNullOrWhiteSpace(expression))
+            return string.Empty;
+
+        // Temporarily set the current row for this evaluation
+        var previousRow = _currentRow;
+        var previousDataSetName = _currentDataSetName;
+        
+        _currentRow = currentRow;
+        _currentDataSetName = dataSetName;
+        
         try
         {
+            // Remove leading = if present
+            if (expression.StartsWith("="))
+                expression = expression[1..];
+
             var result = EvaluateRdlcExpression(expression);
             
             // Check if the result is still an unprocessed complex expression (likely invalid)
@@ -67,6 +82,12 @@ public class RdlcExpressionEvaluator
         {
             // If evaluation fails, return the original expression for debugging
             return $"[Error: {ex.Message}] {expression}";
+        }
+        finally
+        {
+            // Restore previous row state
+            _currentRow = previousRow;
+            _currentDataSetName = previousDataSetName;
         }
     }
 
@@ -157,6 +178,7 @@ public class RdlcExpressionEvaluator
             }
             
             var fieldName = match.Groups[1].Value;
+            
             var fieldValue = _currentRow?.Table.Columns.Contains(fieldName) == true ? _currentRow[fieldName]?.ToString() ?? "" : "";
             
             // For numeric values, format consistently and don't add quotes

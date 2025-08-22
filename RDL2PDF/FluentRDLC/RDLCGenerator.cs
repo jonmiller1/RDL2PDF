@@ -99,6 +99,22 @@ namespace FluentRDLC
     }
 
     /// <summary>
+    /// Represents a rectangle shape with background color and borders
+    /// </summary>
+    public class RdlcRectangle
+    {
+        public string Name { get; set; } = "";
+        public double Left { get; set; }
+        public double Top { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public string BackgroundColor { get; set; } = "Transparent";
+        public string BorderColor { get; set; } = "Black";
+        public string BorderStyle { get; set; } = "None"; // "Solid", "Dashed", "Dotted", "Double", "None"
+        public string BorderWidth { get; set; } = "1pt";
+    }
+
+    /// <summary>
     /// Represents a gauge/indicator control in the report
     /// </summary>
     public class RdlcGauge
@@ -562,6 +578,64 @@ namespace FluentRDLC
         public LineBuilder AsSeparator() => Gray().WithWidth(0.5);
     }
 
+    public class RectangleBuilder
+    {
+        internal RdlcRectangle Rectangle { get; private set; }
+
+        public RectangleBuilder(string name)
+        {
+            Rectangle = new RdlcRectangle { Name = name };
+        }
+
+        public RectangleBuilder At(double left, double top)
+        {
+            Rectangle.Left = left;
+            Rectangle.Top = top;
+            return this;
+        }
+
+        public RectangleBuilder WithSize(double width, double height)
+        {
+            Rectangle.Width = width;
+            Rectangle.Height = height;
+            return this;
+        }
+
+        public RectangleBuilder WithBounds(double left, double top, double width, double height)
+        {
+            Rectangle.Left = left;
+            Rectangle.Top = top;
+            Rectangle.Width = width;
+            Rectangle.Height = height;
+            return this;
+        }
+
+        public RectangleBuilder WithBackgroundColor(string color)
+        {
+            Rectangle.BackgroundColor = color;
+            return this;
+        }
+
+        public RectangleBuilder WithBorder(string color, string style = "Solid", string width = "1pt")
+        {
+            Rectangle.BorderColor = color;
+            Rectangle.BorderStyle = style;
+            Rectangle.BorderWidth = width;
+            return this;
+        }
+
+        public RectangleBuilder NoBorder()
+        {
+            Rectangle.BorderStyle = "None";
+            return this;
+        }
+
+        public RectangleBuilder LightGray() => WithBackgroundColor("#E8E8E8");
+        public RectangleBuilder Yellow() => WithBackgroundColor("#F4D03F");
+        public RectangleBuilder White() => WithBackgroundColor("White");
+        public RectangleBuilder Transparent() => WithBackgroundColor("Transparent");
+    }
+
     /// <summary>
     /// Fluent builder for RDLC tablix (tables)
     /// </summary>
@@ -811,6 +885,7 @@ namespace FluentRDLC
         private readonly List<TextBoxBuilder> _textBoxes = new List<TextBoxBuilder>();
         private readonly List<ImageBuilder> _images = new List<ImageBuilder>();
         private readonly List<LineBuilder> _lines = new List<LineBuilder>();
+        private readonly List<RectangleBuilder> _rectangles = new List<RectangleBuilder>();
         private readonly List<ChartBuilder> _charts = new List<ChartBuilder>();
         private readonly List<TablixBuilder> _tablix = new List<TablixBuilder>();
         private readonly List<RdlcEmbeddedImage> _embeddedImages = new List<RdlcEmbeddedImage>();
@@ -976,6 +1051,14 @@ namespace FluentRDLC
             return this;
         }
 
+        public RdlcReportBuilder WithRectangle(string name, Action<RectangleBuilder> configure)
+        {
+            var rectangleBuilder = new RectangleBuilder(name);
+            configure(rectangleBuilder);
+            _rectangles.Add(rectangleBuilder);
+            return this;
+        }
+
         public RdlcReportBuilder WithHorizontalLine(double left = 0, double top = 0, double width = 8)
         {
             return WithLine($"HLine_{Guid.NewGuid():N}", line => line
@@ -1098,6 +1181,11 @@ namespace FluentRDLC
             foreach (var lineBuilder in _lines)
             {
                 _processor.AddLine(lineBuilder.Line);
+            }
+
+            foreach (var rectangleBuilder in _rectangles)
+            {
+                _processor.AddRectangle(rectangleBuilder.Rectangle);
             }
 
             // Add charts
@@ -1317,6 +1405,29 @@ namespace FluentRDLC
             reportItemsElement.Add(lineElement);
         }
 
+        public void AddRectangle(RdlcRectangle rectangle)
+        {
+            var reportItemsElement = GetReportItemsElement();
+            var rectangleElement = new XElement(_reportNamespace + "Rectangle",
+                new XAttribute("Name", rectangle.Name),
+                new XElement(_reportNamespace + "Top", $"{rectangle.Top}in"),
+                new XElement(_reportNamespace + "Left", $"{rectangle.Left}in"),
+                new XElement(_reportNamespace + "Height", $"{rectangle.Height}in"),
+                new XElement(_reportNamespace + "Width", $"{rectangle.Width}in"),
+                new XElement(_reportNamespace + "Style",
+                    rectangle.BackgroundColor != "Transparent" ? 
+                        new XElement(_reportNamespace + "BackgroundColor", rectangle.BackgroundColor) : null,
+                    rectangle.BorderStyle != "None" ?
+                        new XElement(_reportNamespace + "Border",
+                            new XElement(_reportNamespace + "Color", rectangle.BorderColor),
+                            new XElement(_reportNamespace + "Style", rectangle.BorderStyle),
+                            new XElement(_reportNamespace + "Width", rectangle.BorderWidth)
+                        ) : null
+                )
+            );
+            reportItemsElement.Add(rectangleElement);
+        }
+
         public void AddChart(RdlcChart chart)
         {
             var reportItemsElement = GetReportItemsElement();
@@ -1499,17 +1610,30 @@ namespace FluentRDLC
                     new XElement(_reportNamespace + "Static", "true")));
             }
             
-            // Add data row member with group
-            if (tablix.DataRows.Count > 0 && !string.IsNullOrEmpty(tablix.GroupExpression))
+            // Add data row member 
+            if (tablix.DataRows.Count > 0)
             {
-                rowMembers.Add(new XElement(_reportNamespace + "TablixMember",
-                    new XElement(_reportNamespace + "Group",
-                        new XAttribute("Name", $"{tablix.Name}_Group"),
-                        new XElement(_reportNamespace + "GroupExpressions",
-                            new XElement(_reportNamespace + "GroupExpression", tablix.GroupExpression)
+                if (!string.IsNullOrEmpty(tablix.GroupExpression))
+                {
+                    // With group expression
+                    rowMembers.Add(new XElement(_reportNamespace + "TablixMember",
+                        new XElement(_reportNamespace + "Group",
+                            new XAttribute("Name", $"{tablix.Name}_Group"),
+                            new XElement(_reportNamespace + "GroupExpressions",
+                                new XElement(_reportNamespace + "GroupExpression", tablix.GroupExpression)
+                            )
                         )
-                    )
-                ));
+                    ));
+                }
+                else
+                {
+                    // Without group expression - create simple data row member
+                    rowMembers.Add(new XElement(_reportNamespace + "TablixMember",
+                        new XElement(_reportNamespace + "Group",
+                            new XAttribute("Name", $"{tablix.Name}_Details")
+                        )
+                    ));
+                }
             }
             
             tablixElement.Add(rowHierarchy);

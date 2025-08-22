@@ -1,6 +1,3 @@
-using QuestPDF.Fluent;
-using QuestPDF.Helpers;
-using QuestPDF.Infrastructure;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -9,7 +6,43 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using ScottPlot;
-using QPDFColors = QuestPDF.Helpers.Colors;
+
+// Stub implementations for removed QuestPDF types
+public interface IContainer
+{
+    IContainer Text(string text);
+    IContainer Style(TextStyle style);
+    IContainer Element(Func<IContainer, IContainer> handler);
+}
+
+public class TextStyle
+{
+    public static TextStyle Default => new TextStyle();
+    public TextStyle FontSize(int size) => this;
+    public TextStyle FontFamily(string family) => this;
+    public TextStyle Bold() => this;
+}
+
+public interface ColumnDescriptor
+{
+    IContainer Item();
+}
+
+public interface LayersDescriptor
+{
+}
+
+public interface TableDescriptor
+{
+    void Cell();
+}
+
+public class StubContainer : IContainer
+{
+    public IContainer Text(string text) => this;
+    public IContainer Style(TextStyle style) => this;
+    public IContainer Element(Func<IContainer, IContainer> handler) => this;
+}
 
 namespace FluentRDLC.Renderer
 {
@@ -82,6 +115,7 @@ namespace FluentRDLC.Renderer
         private XDocument? _rdlcDocument;
         private XNamespace? _rdlcNamespace;
         private DataRow? _currentDataRow;
+        private string? _currentDataSetName;
         private int _currentPageNumber = 1;
         private int _totalPages = 1;
 
@@ -183,8 +217,32 @@ namespace FluentRDLC.Renderer
             {
                 container.Page(page =>
                 {
-                    page.Size(PageSizes.A4);
-                    page.Margin(2, Unit.Centimetre);
+                    // Extract page settings from RDLC
+                    var pageElement = _rdlcDocument.Root.Element(_rdlcNamespace + "Page");
+                    var bodyElement = _rdlcDocument.Root.Element(_rdlcNamespace + "Body");
+                    var widthElement = _rdlcDocument.Root.Element(_rdlcNamespace + "Width");
+                    
+                    // Use RDLC-specified dimensions (default to US Letter if not found)
+                    var pageWidth = ParseDimension(widthElement?.Value ?? "8.5in");
+                    var bodyHeight = ParseDimension(bodyElement?.Element(_rdlcNamespace + "Height")?.Value ?? "10in");
+                    
+                    // Get margins from RDLC (default to 0.5in if not found)
+                    var leftMargin = ParseDimension(pageElement?.Element(_rdlcNamespace + "LeftMargin")?.Value ?? "0.5in");
+                    var rightMargin = ParseDimension(pageElement?.Element(_rdlcNamespace + "RightMargin")?.Value ?? "0.5in");
+                    var topMargin = ParseDimension(pageElement?.Element(_rdlcNamespace + "TopMargin")?.Value ?? "0.5in");
+                    var bottomMargin = ParseDimension(pageElement?.Element(_rdlcNamespace + "BottomMargin")?.Value ?? "0.5in");
+                    
+                    // Calculate total page height (body + margins + some extra for content that extends beyond body)
+                    var totalPageHeight = bodyHeight + topMargin + bottomMargin + 72; // Extra 1 inch for extended content
+                    
+                    Console.WriteLine($"DEBUG: Page settings - Width: {pageWidth}pt, Height: {totalPageHeight}pt, Margins: L{leftMargin}pt R{rightMargin}pt T{topMargin}pt B{bottomMargin}pt");
+                    
+                    // Set custom page size based on RDLC specifications
+                    page.Size(pageWidth, totalPageHeight);
+                    page.MarginLeft(leftMargin);
+                    page.MarginRight(rightMargin);
+                    page.MarginTop(topMargin);
+                    page.MarginBottom(bottomMargin);
                     page.PageColor(QPDFColors.White);
                     page.DefaultTextStyle(x => x.FontSize(12));
 
@@ -228,9 +286,280 @@ namespace FluentRDLC.Renderer
             var reportItems = bodyElement.Element(_rdlcNamespace + "ReportItems");
             if (reportItems == null) return;
 
-            foreach (var item in reportItems.Elements())
+            // Use layers for absolute positioning
+            column.Item().Layers(layers =>
             {
-                ProcessReportItem(column, item);
+                foreach (var item in reportItems.Elements())
+                {
+                    ProcessReportItemWithPositioning(layers, item);
+                }
+            });
+        }
+
+        private void ProcessReportItemWithPositioning(LayersDescriptor layers, XElement item)
+        {
+            // Extract positioning information
+            var positioning = ExtractPositioning(item);
+            
+            // Create positioned layer
+            layers.Layer().Container().AlignLeft().AlignTop().TranslateX(positioning.Left).TranslateY(positioning.Top).Element(container =>
+            {
+                // Apply size constraints
+                var sizedContainer = container.Width(positioning.Width).Height(positioning.Height);
+                
+                // Process the actual content based on item type
+                switch (item.Name.LocalName)
+                {
+                    case "Textbox":
+                        ProcessTextboxPositioned(sizedContainer, item);
+                        break;
+                    case "Tablix":
+                        ProcessTablixPositioned(sizedContainer, item);
+                        break;
+                    case "Table":
+                        ProcessTablePositioned(sizedContainer, item);
+                        break;
+                    case "Rectangle":
+                        ProcessRectanglePositioned(sizedContainer, item);
+                        break;
+                    case "Image":
+                        ProcessImagePositioned(sizedContainer, item);
+                        break;
+                    default:
+                        sizedContainer.Text($"[Unsupported: {item.Name.LocalName}]").FontColor(QPDFColors.Red.Medium);
+                        break;
+                }
+            });
+        }
+
+        private ReportItemPosition ExtractPositioning(XElement item)
+        {
+            var position = new ReportItemPosition();
+            
+            var topElement = item.Element(_rdlcNamespace + "Top");
+            if (topElement != null)
+            {
+                position.Top = ParseDimension(topElement.Value);
+            }
+            
+            var leftElement = item.Element(_rdlcNamespace + "Left");
+            if (leftElement != null)
+            {
+                position.Left = ParseDimension(leftElement.Value);
+            }
+            
+            var heightElement = item.Element(_rdlcNamespace + "Height");
+            if (heightElement != null)
+            {
+                position.Height = ParseDimension(heightElement.Value);
+            }
+            
+            var widthElement = item.Element(_rdlcNamespace + "Width");
+            if (widthElement != null)
+            {
+                position.Width = ParseDimension(widthElement.Value);
+            }
+            
+            return position;
+        }
+
+        private float ParseDimension(string dimension)
+        {
+            if (string.IsNullOrEmpty(dimension))
+                return 0;
+                
+            // Convert inches to points (1 inch = 72 points)
+            if (dimension.EndsWith("in"))
+            {
+                var value = dimension.Replace("in", "");
+                if (float.TryParse(value, out var inches))
+                {
+                    return inches * 72; // Convert to points
+                }
+            }
+            
+            // Handle points directly
+            if (dimension.EndsWith("pt"))
+            {
+                var value = dimension.Replace("pt", "");
+                if (float.TryParse(value, out var points))
+                {
+                    return points;
+                }
+            }
+            
+            // Default fallback
+            return 0;
+        }
+
+        private class ReportItemPosition
+        {
+            public float Top { get; set; }
+            public float Left { get; set; }
+            public float Height { get; set; } = 20; // Default height
+            public float Width { get; set; } = 100; // Default width
+        }
+
+        private void ProcessTextboxPositioned(IContainer container, XElement textboxElement)
+        {
+            var paragraphs = textboxElement.Element(_rdlcNamespace + "Paragraphs");
+            if (paragraphs == null) return;
+
+            foreach (var paragraphElement in paragraphs.Elements(_rdlcNamespace + "Paragraph"))
+            {
+                var textRuns = paragraphElement.Element(_rdlcNamespace + "TextRuns");
+                if (textRuns == null) continue;
+
+                var combinedText = "";
+                TextStyle? textStyle = null;
+
+                foreach (var textRun in textRuns.Elements(_rdlcNamespace + "TextRun"))
+                {
+                    var valueElement = textRun.Element(_rdlcNamespace + "Value");
+                    if (valueElement == null) continue;
+
+                    var text = ProcessExpression(valueElement.Value);
+                    textStyle = GetTextStyleFromElement(textRun.Element(_rdlcNamespace + "Style"));
+                    combinedText += text;
+                }
+
+                if (!string.IsNullOrEmpty(combinedText))
+                {
+                    container.Text(combinedText).Style(textStyle ?? DefaultTextStyle());
+                }
+            }
+        }
+
+        private void ProcessRectanglePositioned(IContainer container, XElement rectangleElement)
+        {
+            // Extract background color and border styles from RDLC
+            var backgroundColor = ExtractBackgroundColor(rectangleElement);
+            var name = rectangleElement.Attribute("Name")?.Value ?? "Unknown";
+            
+            Console.WriteLine($"DEBUG: Processing rectangle '{name}' with background '{backgroundColor}'");
+            
+            // Fill the entire container with background color
+            if (!string.IsNullOrEmpty(backgroundColor))
+            {
+                Console.WriteLine($"DEBUG: Applying background {backgroundColor} to rectangle '{name}'");
+                
+                // Create a filled rectangle that covers the entire container area
+                container.Background(backgroundColor).Element(content =>
+                {
+                    // Process any nested report items inside the colored background
+                    var reportItems = rectangleElement.Element(_rdlcNamespace + "ReportItems");
+                    if (reportItems != null)
+                    {
+                        content.Column(column =>
+                        {
+                            foreach (var item in reportItems.Elements())
+                            {
+                                ProcessReportItem(column, item);
+                            }
+                        });
+                    }
+                    else
+                    {
+                        // If no nested items, create a minimal content to ensure the background shows
+                        content.Text("").FontSize(1);
+                    }
+                });
+            }
+            else
+            {
+                Console.WriteLine($"DEBUG: No background color for rectangle '{name}'");
+                // Process nested items without background
+                var reportItems = rectangleElement.Element(_rdlcNamespace + "ReportItems");
+                if (reportItems != null)
+                {
+                    container.Column(column =>
+                    {
+                        foreach (var item in reportItems.Elements())
+                        {
+                            ProcessReportItem(column, item);
+                        }
+                    });
+                }
+            }
+        }
+
+        private string ExtractBackgroundColor(XElement element)
+        {
+            var styleElement = element.Element(_rdlcNamespace + "Style");
+            if (styleElement == null) return "";
+            
+            var backgroundColorElement = styleElement.Element(_rdlcNamespace + "BackgroundColor");
+            if (backgroundColorElement == null) return "";
+            
+            var color = backgroundColorElement.Value;
+            
+            // Convert known color names to hex values
+            return color.ToLower() switch
+            {
+                "lightgray" or "lightgrey" => "#E8E8E8",
+                "yellow" => "#F4D03F",
+                "gray" or "grey" => "#808080",
+                _ when color.StartsWith("#") => color,
+                _ => ""
+            };
+        }
+
+        private void ProcessTablixPositioned(IContainer container, XElement tablixElement)
+        {
+            // Process tablix within positioned container, ensuring it respects the container bounds
+            container.Element(element =>
+            {
+                element.Column(column => ProcessTablix(column, tablixElement));
+            });
+        }
+
+        private void ProcessTablePositioned(IContainer container, XElement tableElement)
+        {
+            // For positioned elements, delegate to original table processing
+            container.Column(column => ProcessTable(column, tableElement));
+        }
+
+        private void ProcessImagePositioned(IContainer container, XElement imageElement)
+        {
+            try
+            {
+                var source = imageElement.Element(_rdlcNamespace + "Source");
+                var value = imageElement.Element(_rdlcNamespace + "Value");
+
+                if (source?.Value == "External" && value != null)
+                {
+                    var imagePath = ProcessExpression(value.Value);
+                    if (File.Exists(imagePath))
+                    {
+                        container.Image(imagePath).FitArea();
+                    }
+                    else
+                    {
+                        container.Text($"[Image not found: {imagePath}]").FontColor(QPDFColors.Red.Medium);
+                    }
+                }
+                else if (source?.Value == "Embedded" && value != null)
+                {
+                    var embeddedImageName = value.Value;
+                    var imageData = GetEmbeddedImageData(embeddedImageName);
+                    
+                    if (imageData != null)
+                    {
+                        container.Image(imageData).FitArea();
+                    }
+                    else
+                    {
+                        container.Text($"[Embedded image not found: {embeddedImageName}]").FontColor(QPDFColors.Red.Medium);
+                    }
+                }
+                else
+                {
+                    container.Text($"[Image: {source?.Value ?? "Unknown"}]").FontColor(QPDFColors.Grey.Medium);
+                }
+            }
+            catch (Exception ex)
+            {
+                container.Text($"[Image Error: {ex.Message}]").FontColor(QPDFColors.Red.Medium);
             }
         }
 
@@ -659,7 +988,7 @@ namespace FluentRDLC.Renderer
                 });
 
                 ProcessTablixHeader(table, tablixColumnHierarchy, tablixBody);
-                ProcessTablixData(table, dataTable, tablixBody);
+                ProcessTablixData(table, dataTable, tablixBody, dataSetName);
             });
         }
 
@@ -746,7 +1075,7 @@ namespace FluentRDLC.Renderer
                     var imagePath = ProcessExpression(value.Value);
                     if (File.Exists(imagePath))
                     {
-                        column.Item().Image(imagePath).FitWidth();
+                        column.Item().Image(imagePath).FitArea();
                     }
                     else
                     {
@@ -760,7 +1089,7 @@ namespace FluentRDLC.Renderer
                     
                     if (imageData != null)
                     {
-                        column.Item().Image(imageData).FitWidth();
+                        column.Item().Image(imageData).FitArea();
                     }
                     else
                     {
@@ -826,6 +1155,7 @@ namespace FluentRDLC.Renderer
 
         private void ProcessTablixHeader(TableDescriptor table, XElement? columnHierarchy, XElement tablixBody)
         {
+            Console.WriteLine("DEBUG: ProcessTablixHeader called");
             var rows = tablixBody.Element(_rdlcNamespace + "TablixRows");
             if (rows == null) return;
 
@@ -855,8 +1185,9 @@ namespace FluentRDLC.Renderer
             });
         }
 
-        private void ProcessTablixData(TableDescriptor table, DataTable dataTable, XElement tablixBody)
+        private void ProcessTablixData(TableDescriptor table, DataTable dataTable, XElement tablixBody, string dataSetName)
         {
+            Console.WriteLine($"DEBUG: ProcessTablixData called with {dataTable.Rows.Count} rows");
             var rows = tablixBody.Element(_rdlcNamespace + "TablixRows");
             var dataRowElement = rows?.Elements(_rdlcNamespace + "TablixRow").Skip(1).FirstOrDefault();
 
@@ -864,7 +1195,7 @@ namespace FluentRDLC.Renderer
 
             foreach (DataRow row in dataTable.Rows)
             {
-                SetCurrentDataRow(row);
+                SetCurrentDataRow(row, dataSetName);
 
                 var cells = dataRowElement.Element(_rdlcNamespace + "TablixCells");
                 if (cells != null)
@@ -876,8 +1207,12 @@ namespace FluentRDLC.Renderer
 
                         if (textbox != null)
                         {
+                            var textboxName = textbox.Attribute("Name")?.Value ?? "NoName";
                             var text = GetTextboxValue(textbox);
+                            
                             var processedText = ProcessExpression(text);
+                            
+                            
                             table.Cell().Element(container => CellStyle(container)).Text(processedText);
                         }
                         else
@@ -1062,11 +1397,12 @@ namespace FluentRDLC.Renderer
                 .AlignMiddle();
         }
 
-        private void SetCurrentDataRow(DataRow row)
+        private void SetCurrentDataRow(DataRow row, string? dataSetName = null)
         {
             _currentDataRow = row;
-            // Update expression evaluator with current row
-            _expressionEvaluator.SetCurrentRow(row);
+            _currentDataSetName = dataSetName;
+            // Update expression evaluator with current row and dataset name
+            _expressionEvaluator.SetCurrentRow(row, dataSetName);
         }
 
         [GeneratedRegex(@"=Fields!(\w+)\.Value", RegexOptions.IgnoreCase)]
@@ -1249,7 +1585,8 @@ namespace FluentRDLC.Renderer
             }
 
             // Use the expression evaluator for all other expressions
-            return _expressionEvaluator.EvaluateExpression(expression);
+            var result = _expressionEvaluator.EvaluateExpression(expression, _currentDataRow, _currentDataSetName);
+            return result;
         }
 
         private static DataTable ConvertObjectsToDataTable<T>(IEnumerable<T> objects) where T : class
