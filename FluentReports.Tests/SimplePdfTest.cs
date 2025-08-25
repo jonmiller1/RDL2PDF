@@ -643,4 +643,254 @@ public class SimplePdfTest
         var wideWidth = renderer.MeasureTextWidthInches("MMM", 0.167f);
         Assert.True(wideWidth > narrowWidth);
     }
+
+    [Fact]
+    public void CanDrawMultiLineText()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Title
+        renderer.DrawTextInches("Multi-line Text with Word Wrapping Test", 0.5f, 0.5f, 0.2f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Test basic multi-line text
+        var shortText = "This is a short paragraph that should wrap to multiple lines when constrained to a narrow width.";
+        
+        // Show the constraint box
+        var boxX = 1f;
+        var boxY = 1.5f;
+        var boxWidth = 3f;
+        var boxHeight = 2f;
+        
+        renderer.DrawRectangleInches(boxX, boxY, boxWidth, boxHeight, 1f, PdfColor.Blue, strokeStyle: LineStyle.Dashed);
+        renderer.DrawTextInches("3\" width constraint:", boxX, boxY - 0.3f, 0.12f, PdfColor.Blue);
+        
+        var consumedHeight = renderer.DrawMultiLineTextInches(shortText, boxX + 0.1f, boxY + 0.1f, boxWidth - 0.2f, 0.12f, PdfColor.Black);
+        
+        // Test longer text with different alignments
+        var longText = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.";
+        
+        // Left aligned
+        boxY = 4f;
+        renderer.DrawRectangleInches(boxX, boxY, boxWidth, boxHeight, 1f, PdfColor.Green, strokeStyle: LineStyle.Dashed);
+        renderer.DrawTextInches("Left Aligned:", boxX, boxY - 0.3f, 0.12f, PdfColor.Green);
+        renderer.DrawMultiLineTextInches(longText, boxX + 0.1f, boxY + 0.1f, boxWidth - 0.2f, 0.1f, PdfColor.Black, alignment: TextAlignment.Left);
+        
+        // Center aligned
+        boxX = 5f;
+        renderer.DrawRectangleInches(boxX, boxY, boxWidth, boxHeight, 1f, PdfColor.Red, strokeStyle: LineStyle.Dashed);
+        renderer.DrawTextInches("Center Aligned:", boxX, boxY - 0.3f, 0.12f, PdfColor.Red);
+        renderer.DrawMultiLineTextInches(longText, boxX + boxWidth / 2f, boxY + 0.1f, boxWidth - 0.2f, 0.1f, PdfColor.Black, alignment: TextAlignment.Center);
+        
+        // Test text with explicit line breaks
+        boxY = 6.5f;
+        boxX = 1f;
+        var textWithBreaks = "Line 1\nLine 2\nLine 3\n\nLine 5 after empty line\nThis is a long line that should wrap within the constraint box";
+        
+        renderer.DrawRectangleInches(boxX, boxY, boxWidth, 2.5f, 1f, PdfColor.Magenta, strokeStyle: LineStyle.Dashed);
+        renderer.DrawTextInches("With Line Breaks:", boxX, boxY - 0.3f, 0.12f, PdfColor.Magenta);
+        renderer.DrawMultiLineTextInches(textWithBreaks, boxX + 0.1f, boxY + 0.1f, boxWidth - 0.2f, 0.12f, PdfColor.Black);
+        
+        // Test very long word (hyphenation) - use narrow width to force breaking
+        boxY = 9.5f;
+        var narrowBoxWidth = 1.5f; // Much narrower to force word breaking
+        var longWordText = "This contains a pneumonoultramicroscopicsilicovolcanoconiosis word that should be broken up.";
+        
+        renderer.DrawRectangleInches(boxX, boxY, narrowBoxWidth, 1.5f, 1f, PdfColor.Cyan, strokeStyle: LineStyle.Dashed);
+        renderer.DrawTextInches("Long Word Breaking (1.5\" width):", boxX, boxY - 0.3f, 0.12f, PdfColor.Cyan);
+        renderer.DrawMultiLineTextInches(longWordText, boxX + 0.1f, boxY + 0.1f, narrowBoxWidth - 0.2f, 0.12f, PdfColor.Black);
+        
+        // Additional test with an extremely long word that definitely needs breaking
+        boxX = 3.5f;
+        var extremeWordText = "Antidisestablishmentarianism and pseudohypoparathyroidism are examples of exceptionally long words.";
+        
+        renderer.DrawRectangleInches(boxX, boxY, narrowBoxWidth, 1.5f, 1f, PdfColor.DarkGray, strokeStyle: LineStyle.Dashed);
+        renderer.DrawTextInches("More Word Breaking:", boxX, boxY - 0.3f, 0.12f, PdfColor.DarkGray);
+        renderer.DrawMultiLineTextInches(extremeWordText, boxX + 0.1f, boxY + 0.1f, narrowBoxWidth - 0.2f, 0.12f, PdfColor.Black);
+        
+        // Test different line spacing
+        boxX = 5f;
+        boxY = 7f;
+        renderer.DrawRectangleInches(boxX, boxY, boxWidth, 2f, 1f, PdfColor.DarkGray, strokeStyle: LineStyle.Dashed);
+        renderer.DrawTextInches("Line Spacing 1.5x:", boxX, boxY - 0.3f, 0.12f, PdfColor.DarkGray);
+        renderer.DrawMultiLineTextInches("Line 1\nLine 2\nLine 3\nLine 4", boxX + 0.1f, boxY + 0.1f, boxWidth - 0.2f, 0.12f, PdfColor.Black, lineSpacing: 1.5f);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\MultiLineTextTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+        Assert.True(consumedHeight > 0); // Verify some height was consumed
+    }
+
+    [Fact]
+    public void CanDrawRichTextFormatting()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Title
+        renderer.DrawTextInches("Rich Text Formatting Test", 0.5f, 0.5f, 0.2f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Test basic rich text with different styles
+        var richText1 = new RichText()
+            .AddText("This is ")
+            .AddBold("bold text")
+            .AddText(" and this is ")
+            .AddItalic("italic text")
+            .AddText(" and this is ")
+            .AddBoldItalic("bold italic text")
+            .AddText(".");
+        
+        renderer.DrawRichTextInches(richText1, 1f, 1.5f, 0.14f);
+        
+        // Test colored text
+        var richText2 = new RichText()
+            .AddText("Colors: ")
+            .AddText("Red", color: PdfColor.Red)
+            .AddText(", ")
+            .AddText("Blue", color: PdfColor.Blue)
+            .AddText(", ")
+            .AddText("Green", color: PdfColor.Green)
+            .AddText(" and ")
+            .AddBold("Bold Red", PdfColor.Red)
+            .AddText(".");
+        
+        renderer.DrawRichTextInches(richText2, 1f, 2f, 0.14f);
+        
+        // Test underlined and strikethrough text
+        var richText3 = new RichText()
+            .AddText("Text with ")
+            .AddUnderlined("underlines")
+            .AddText(" and ")
+            .AddStrikethrough("strikethrough")
+            .AddText(" and ")
+            .AddText("both", font: PdfFont.HelveticaBold, isUnderlined: true, isStrikethrough: true)
+            .AddText(".");
+        
+        renderer.DrawRichTextInches(richText3, 1f, 2.5f, 0.14f);
+        
+        // Test different alignments
+        renderer.DrawTextInches("Alignments:", 1f, 3.2f, 0.15f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Draw alignment reference lines
+        var centerX = 4.25f;
+        var rightX = 7.5f;
+        renderer.DrawLineInches(1f, 3.5f, 1f, 5.5f, 0.5f, PdfColor.LightGray);
+        renderer.DrawLineInches(centerX, 3.5f, centerX, 5.5f, 0.5f, PdfColor.LightGray);
+        renderer.DrawLineInches(rightX, 3.5f, rightX, 5.5f, 0.5f, PdfColor.LightGray);
+        
+        var richText4 = new RichText()
+            .AddText("Left: ")
+            .AddBold("Bold")
+            .AddText(" and ")
+            .AddItalic("Italic", PdfColor.Blue);
+        
+        var richText5 = new RichText()
+            .AddText("Center: ")
+            .AddBold("Bold", PdfColor.Red)
+            .AddText(" and ")
+            .AddItalic("Italic");
+        
+        var richText6 = new RichText()
+            .AddText("Right: ")
+            .AddBold("Bold")
+            .AddText(" and ")
+            .AddItalic("Italic", PdfColor.Green);
+        
+        renderer.DrawRichTextInches(richText4, 1f, 4f, 0.12f, TextAlignment.Left);
+        renderer.DrawRichTextInches(richText5, centerX, 4.3f, 0.12f, TextAlignment.Center);
+        renderer.DrawRichTextInches(richText6, rightX, 4.6f, 0.12f, TextAlignment.Right);
+        
+        // Test multi-line rich text
+        renderer.DrawTextInches("Multi-line Rich Text:", 1f, 5.8f, 0.15f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        var multiLineRichText = new RichText()
+            .AddBold("This is a bold start")
+            .AddText(" followed by normal text that should wrap to multiple lines. ")
+            .AddItalic("This italic text is quite long")
+            .AddText(" and should also wrap properly. ")
+            .AddText("Colors like ", color: PdfColor.Black)
+            .AddText("red", color: PdfColor.Red)
+            .AddText(" and ", color: PdfColor.Black)
+            .AddText("blue", color: PdfColor.Blue)
+            .AddText(" should be preserved across line breaks. ", color: PdfColor.Black)
+            .AddUnderlined("Underlined text")
+            .AddText(" and ")
+            .AddStrikethrough("strikethrough text")
+            .AddText(" should also work in multi-line scenarios.");
+        
+        // Show constraint box
+        var multiBoxX = 1f;
+        var multiBoxY = 6.5f;
+        var multiBoxWidth = 4f;
+        
+        renderer.DrawRectangleInches(multiBoxX, multiBoxY, multiBoxWidth, 3f, 1f, PdfColor.Blue, strokeStyle: LineStyle.Dashed);
+        renderer.DrawTextInches("4\" width constraint:", multiBoxX, multiBoxY - 0.3f, 0.12f, PdfColor.Blue);
+        
+        var consumedHeight = renderer.DrawMultiLineRichTextInches(multiLineRichText, multiBoxX + 0.1f, multiBoxY + 0.1f, multiBoxWidth - 0.2f, 0.12f);
+        
+        // Test different fonts in rich text
+        renderer.DrawTextInches("Mixed Fonts:", 5.5f, 6f, 0.15f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        var mixedFontText = new RichText()
+            .AddText("Helvetica ", PdfFont.Helvetica)
+            .AddText("Times ", PdfFont.TimesRoman, PdfColor.Blue)
+            .AddText("Courier ", PdfFont.Courier, PdfColor.Green)
+            .AddText("Bold", PdfFont.HelveticaBold, PdfColor.Red);
+        
+        renderer.DrawRichTextInches(mixedFontText, 5.5f, 6.5f, 0.14f);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\RichTextTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+        Assert.True(consumedHeight > 0);
+    }
+
+    [Fact]
+    public void RichTextSpacingTest()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Title
+        renderer.DrawTextInches("Rich Text Spacing Test", 0.5f, 0.5f, 0.2f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Test basic spacing between normal and bold text
+        var spacingTest1 = new RichText()
+            .AddText("Normal ")
+            .AddBold("Bold")
+            .AddText(" Normal");
+        
+        renderer.DrawRichTextInches(spacingTest1, 1f, 1.5f, 0.16f);
+        
+        // Test spacing with different combinations
+        var spacingTest2 = new RichText()
+            .AddText("Start ")
+            .AddBold("Bold ")
+            .AddItalic("Italic ")
+            .AddText("End");
+        
+        renderer.DrawRichTextInches(spacingTest2, 1f, 2f, 0.16f);
+        
+        // Test with colors and formatting
+        var spacingTest3 = new RichText()
+            .AddText("Black ")
+            .AddText("Red ", color: PdfColor.Red)
+            .AddBold("Bold ", PdfColor.Blue)
+            .AddText("Normal");
+        
+        renderer.DrawRichTextInches(spacingTest3, 1f, 2.5f, 0.16f);
+        
+        // Test to visually verify proper spacing
+        renderer.DrawTextInches("Reference text with same content:", 1f, 3.2f, 0.12f, PdfColor.Black);
+        renderer.DrawTextInches("Normal Bold Normal", 1f, 3.5f, 0.16f, PdfColor.Black);
+        renderer.DrawTextInches("Start Bold Italic End", 1f, 3.8f, 0.16f, PdfColor.Black);
+        renderer.DrawTextInches("Black Red Bold Normal", 1f, 4.1f, 0.16f, PdfColor.Black);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\RichTextSpacingTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
 }

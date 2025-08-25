@@ -27,7 +27,10 @@
       "Read(/C:\\output/**)",
       "Read(/C:\\output/**)",
       "Read(/C:\\output/**)",
-      "Read(/C:\\output/**)"
+      "Read(/C:\\output/**)",
+      "WebSearch",
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:www.asppdf.com)"
     ],
     "deny": [],
     "ask": [],

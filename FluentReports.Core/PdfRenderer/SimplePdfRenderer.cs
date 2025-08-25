@@ -245,13 +245,18 @@ public class SimplePdfRenderer : IDisposable
 
     private float EstimateTextWidth(string text, float fontSize)
     {
-        // More accurate character width estimation based on Helvetica metrics
+        return EstimateTextWidthForFont(text, fontSize, PdfFont.Helvetica);
+    }
+
+    private float EstimateTextWidthForFont(string text, float fontSize, PdfFont font)
+    {
+        // More accurate character width estimation based on font metrics
         // Character widths in thousandths of an em unit (font size)
         var totalWidth = 0f;
         
         foreach (char c in text)
         {
-            var charWidth = GetCharacterWidth(c);
+            var charWidth = GetCharacterWidthForFont(c, font);
             totalWidth += charWidth;
         }
         
@@ -259,6 +264,21 @@ public class SimplePdfRenderer : IDisposable
         return totalWidth * fontSize / 1000f;
     }
     
+    private float GetCharacterWidthForFont(char c, PdfFont font)
+    {
+        // Get base width for Helvetica
+        var baseWidth = GetCharacterWidth(c);
+        
+        // Apply font-specific multipliers for different fonts
+        return font.Name.ToLowerInvariant() switch
+        {
+            "helvetica-bold" or "helvetica-boldoblique" => baseWidth * 1.05f, // Bold is slightly wider
+            "times-roman" or "times-bold" or "times-italic" or "times-bolditalic" => baseWidth * 0.95f, // Times is slightly narrower
+            "courier" or "courier-bold" or "courier-oblique" or "courier-boldoblique" => 600f, // Courier is monospace
+            _ => baseWidth // Helvetica and Helvetica-Oblique
+        };
+    }
+
     private float GetCharacterWidth(char c)
     {
         // Helvetica character widths in thousandths of em unit
@@ -392,6 +412,351 @@ public class SimplePdfRenderer : IDisposable
     public void DrawTextPoints(string text, float x, float y, float fontSizePoints = 12f, PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left)
     {
         DrawText(text, x, y, fontSizePoints, color, font, alignment);
+    }
+
+    public float DrawMultiLineText(string text, float x, float y, float maxWidth, float fontSize = 12f, 
+        PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left, 
+        float lineSpacing = 1.2f)
+    {
+        if (string.IsNullOrEmpty(text)) return 0f;
+
+        var lines = WrapText(text, maxWidth, fontSize, font);
+        var lineHeight = fontSize * lineSpacing;
+        var currentY = y;
+
+        foreach (var line in lines)
+        {
+            DrawText(line, x, currentY, fontSize, color, font, alignment);
+            currentY += lineHeight;
+        }
+
+        return (lines.Count - 1) * lineHeight; // Return total height consumed
+    }
+
+    public float DrawMultiLineTextInches(string text, float x, float y, float maxWidthInches, float fontSizeInches = 0.167f,
+        PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left,
+        float lineSpacing = 1.2f)
+    {
+        var heightPoints = DrawMultiLineText(text, InchesToPoints(x), InchesToPoints(y), InchesToPoints(maxWidthInches),
+            InchesToPoints(fontSizeInches), color, font, alignment, lineSpacing);
+        return PointsToInches(heightPoints);
+    }
+
+    public float DrawMultiLineTextPixels(string text, float x, float y, float maxWidthPixels, float fontSizePixels = 16f,
+        PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left,
+        float lineSpacing = 1.2f)
+    {
+        var heightPoints = DrawMultiLineText(text, PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(maxWidthPixels),
+            PixelsToPoints(fontSizePixels), color, font, alignment, lineSpacing);
+        return PointsToPixels(heightPoints);
+    }
+
+    public float DrawMultiLineTextPoints(string text, float x, float y, float maxWidthPoints, float fontSizePoints = 12f,
+        PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left,
+        float lineSpacing = 1.2f)
+    {
+        return DrawMultiLineText(text, x, y, maxWidthPoints, fontSizePoints, color, font, alignment, lineSpacing);
+    }
+
+    private List<string> WrapText(string text, float maxWidth, float fontSize, PdfFont? font)
+    {
+        var lines = new List<string>();
+        var paragraphs = text.Split(new[] { '\n', '\r' }, StringSplitOptions.None);
+
+        foreach (var paragraph in paragraphs)
+        {
+            if (string.IsNullOrEmpty(paragraph))
+            {
+                lines.Add("");
+                continue;
+            }
+
+            var words = paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0)
+            {
+                lines.Add("");
+                continue;
+            }
+
+            var currentLine = "";
+            
+            foreach (var word in words)
+            {
+                var testLine = string.IsNullOrEmpty(currentLine) ? word : $"{currentLine} {word}";
+                var testWidth = EstimateTextWidth(testLine, fontSize);
+
+                if (testWidth <= maxWidth)
+                {
+                    currentLine = testLine;
+                }
+                else
+                {
+                    // If the word itself is too long, break it
+                    if (string.IsNullOrEmpty(currentLine))
+                    {
+                        // Break long word
+                        var brokenWords = BreakLongWord(word, maxWidth, fontSize);
+                        lines.AddRange(brokenWords.Take(brokenWords.Count - 1));
+                        currentLine = brokenWords.Last();
+                    }
+                    else
+                    {
+                        lines.Add(currentLine);
+                        currentLine = word;
+                        
+                        // Check if this single word is too long
+                        if (EstimateTextWidth(currentLine, fontSize) > maxWidth)
+                        {
+                            var brokenWords = BreakLongWord(currentLine, maxWidth, fontSize);
+                            lines.AddRange(brokenWords.Take(brokenWords.Count - 1));
+                            currentLine = brokenWords.Last();
+                        }
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(currentLine))
+            {
+                lines.Add(currentLine);
+            }
+        }
+
+        return lines;
+    }
+
+    private List<string> BreakLongWord(string word, float maxWidth, float fontSize)
+    {
+        var result = new List<string>();
+        var currentPart = "";
+
+        foreach (var character in word)
+        {
+            var testPart = currentPart + character;
+            if (EstimateTextWidth(testPart, fontSize) <= maxWidth)
+            {
+                currentPart = testPart;
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(currentPart))
+                {
+                    result.Add(currentPart);
+                }
+                currentPart = character.ToString();
+            }
+        }
+
+        if (!string.IsNullOrEmpty(currentPart))
+        {
+            result.Add(currentPart);
+        }
+
+        return result.Count == 0 ? new List<string> { word } : result;
+    }
+
+    public void DrawRichText(RichText richText, float x, float y, float fontSize = 12f, 
+        TextAlignment alignment = TextAlignment.Left)
+    {
+        if (richText.Segments.Count == 0) return;
+
+        // Calculate total width for alignment
+        var totalWidth = CalculateRichTextWidth(richText, fontSize);
+        var adjustedX = alignment switch
+        {
+            TextAlignment.Center => x - (totalWidth / 2),
+            TextAlignment.Right => x - totalWidth,
+            _ => x // Left alignment (default)
+        };
+
+        var currentX = adjustedX;
+        var pdfY = ConvertY(y);
+
+        foreach (var segment in richText.Segments)
+        {
+            if (string.IsNullOrEmpty(segment.Text)) continue;
+
+            var segmentFont = segment.Font ?? PdfFont.Helvetica;
+            var segmentColor = segment.Color ?? PdfColor.Black;
+            
+            // Begin text
+            _content.AppendLine("BT");
+            
+            // Set color
+            _content.AppendLine($"{segmentColor.R:F3} {segmentColor.G:F3} {segmentColor.B:F3} rg");
+            
+            // Set font
+            var fontIndex = GetOrAddFont(segmentFont);
+            _content.AppendLine($"/F{fontIndex} {fontSize:F2} Tf");
+            
+            // Set absolute position (Tm matrix)
+            _content.AppendLine($"1 0 0 1 {currentX:F2} {pdfY:F2} Tm");
+            
+            // Show text
+            _content.AppendLine($"({EscapeText(segment.Text)}) Tj");
+            
+            // End text
+            _content.AppendLine("ET");
+
+            // Calculate segment width for positioning next segment (considering the font)
+            var segmentWidth = EstimateTextWidthForFont(segment.Text, fontSize, segmentFont);
+
+            // Draw underline if needed
+            if (segment.IsUnderlined)
+            {
+                var underlineY = y + fontSize * 0.1f; // Slightly below baseline
+                var underlineThickness = fontSize * 0.05f;
+                DrawLine(currentX, underlineY, currentX + segmentWidth, underlineY, underlineThickness, segmentColor);
+            }
+
+            // Draw strikethrough if needed  
+            if (segment.IsStrikethrough)
+            {
+                var strikeY = y - fontSize * 0.3f; // Through middle of text
+                var strikeThickness = fontSize * 0.05f;
+                DrawLine(currentX, strikeY, currentX + segmentWidth, strikeY, strikeThickness, segmentColor);
+            }
+
+            currentX += segmentWidth;
+        }
+    }
+
+    public void DrawRichTextInches(RichText richText, float x, float y, float fontSizeInches = 0.167f,
+        TextAlignment alignment = TextAlignment.Left)
+    {
+        DrawRichText(richText, InchesToPoints(x), InchesToPoints(y), InchesToPoints(fontSizeInches), alignment);
+    }
+
+    public void DrawRichTextPixels(RichText richText, float x, float y, float fontSizePixels = 16f,
+        TextAlignment alignment = TextAlignment.Left)
+    {
+        DrawRichText(richText, PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(fontSizePixels), alignment);
+    }
+
+    public void DrawRichTextPoints(RichText richText, float x, float y, float fontSizePoints = 12f,
+        TextAlignment alignment = TextAlignment.Left)
+    {
+        DrawRichText(richText, x, y, fontSizePoints, alignment);
+    }
+
+    public float DrawMultiLineRichText(RichText richText, float x, float y, float maxWidth, float fontSize = 12f,
+        TextAlignment alignment = TextAlignment.Left, float lineSpacing = 1.2f)
+    {
+        if (richText.Segments.Count == 0) return 0f;
+
+        // Convert rich text to wrapped lines preserving formatting
+        var wrappedLines = WrapRichText(richText, maxWidth, fontSize);
+        var lineHeight = fontSize * lineSpacing;
+        var currentY = y;
+
+        foreach (var line in wrappedLines)
+        {
+            DrawRichText(line, x, currentY, fontSize, alignment);
+            currentY += lineHeight;
+        }
+
+        return (wrappedLines.Count - 1) * lineHeight;
+    }
+
+    public float DrawMultiLineRichTextInches(RichText richText, float x, float y, float maxWidthInches, float fontSizeInches = 0.167f,
+        TextAlignment alignment = TextAlignment.Left, float lineSpacing = 1.2f)
+    {
+        var heightPoints = DrawMultiLineRichText(richText, InchesToPoints(x), InchesToPoints(y), InchesToPoints(maxWidthInches),
+            InchesToPoints(fontSizeInches), alignment, lineSpacing);
+        return PointsToInches(heightPoints);
+    }
+
+    public float DrawMultiLineRichTextPixels(RichText richText, float x, float y, float maxWidthPixels, float fontSizePixels = 16f,
+        TextAlignment alignment = TextAlignment.Left, float lineSpacing = 1.2f)
+    {
+        var heightPoints = DrawMultiLineRichText(richText, PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(maxWidthPixels),
+            PixelsToPoints(fontSizePixels), alignment, lineSpacing);
+        return PointsToPixels(heightPoints);
+    }
+
+    public float DrawMultiLineRichTextPoints(RichText richText, float x, float y, float maxWidthPoints, float fontSizePoints = 12f,
+        TextAlignment alignment = TextAlignment.Left, float lineSpacing = 1.2f)
+    {
+        return DrawMultiLineRichText(richText, x, y, maxWidthPoints, fontSizePoints, alignment, lineSpacing);
+    }
+
+    private float CalculateRichTextWidth(RichText richText, float fontSize)
+    {
+        var totalWidth = 0f;
+        foreach (var segment in richText.Segments)
+        {
+            var segmentFont = segment.Font ?? PdfFont.Helvetica;
+            totalWidth += EstimateTextWidthForFont(segment.Text, fontSize, segmentFont);
+        }
+        return totalWidth;
+    }
+
+    private List<RichText> WrapRichText(RichText richText, float maxWidth, float fontSize)
+    {
+        var lines = new List<RichText>();
+        var currentLine = new RichText();
+        var currentLineWidth = 0f;
+
+        foreach (var segment in richText.Segments)
+        {
+            // Handle line breaks in segment text
+            var textParts = segment.Text.Split(new[] { '\n', '\r' }, StringSplitOptions.None);
+            
+            for (int i = 0; i < textParts.Length; i++)
+            {
+                if (i > 0)
+                {
+                    // New line encountered
+                    lines.Add(currentLine);
+                    currentLine = new RichText();
+                    currentLineWidth = 0f;
+                }
+
+                var textPart = textParts[i];
+                if (string.IsNullOrEmpty(textPart)) continue;
+
+                var words = textPart.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                
+                foreach (var word in words)
+                {
+                    var wordSegment = new RichTextSegment(word, segment.Font, segment.Color, segment.IsUnderlined, segment.IsStrikethrough);
+                    var segmentFont = segment.Font ?? PdfFont.Helvetica;
+                    var wordWidth = EstimateTextWidthForFont(word, fontSize, segmentFont);
+                    var spaceWidth = EstimateTextWidthForFont(" ", fontSize, segmentFont);
+                    
+                    // Check if adding this word would exceed the line width
+                    var testWidth = currentLineWidth + (currentLineWidth > 0 ? spaceWidth : 0) + wordWidth;
+                    
+                    if (testWidth <= maxWidth || currentLineWidth == 0)
+                    {
+                        // Add space if not at beginning of line
+                        if (currentLineWidth > 0)
+                        {
+                            currentLine.AddText(" ", segment.Font, segment.Color, segment.IsUnderlined, segment.IsStrikethrough);
+                            currentLineWidth += spaceWidth;
+                        }
+                        
+                        currentLine.Segments.Add(wordSegment);
+                        currentLineWidth += wordWidth;
+                    }
+                    else
+                    {
+                        // Start new line
+                        lines.Add(currentLine);
+                        currentLine = new RichText();
+                        currentLine.Segments.Add(wordSegment);
+                        currentLineWidth = wordWidth;
+                    }
+                }
+            }
+        }
+
+        // Add the last line if it has content
+        if (currentLine.Segments.Count > 0)
+        {
+            lines.Add(currentLine);
+        }
+
+        return lines.Count == 0 ? new List<RichText> { new RichText() } : lines;
     }
 
     public void DrawRectangle(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null, LineStyle? strokeStyle = null)
