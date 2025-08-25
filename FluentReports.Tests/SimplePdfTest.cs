@@ -353,4 +353,36 @@ public class SimplePdfTest
         Assert.NotNull(pdfBytes);
         Assert.True(pdfBytes.Length > 0);
     }
+
+    [Fact]
+    public void CanUseDifferentFontSizeUnits()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Test font sizes in points (PDF native)
+        renderer.DrawTextPoints("12pt text", 72f, 72f, 12f, PdfColor.Black);
+        renderer.DrawTextPoints("18pt text", 72f, 100f, 18f, PdfColor.Black);
+        renderer.DrawTextPoints("24pt text", 72f, 140f, 24f, PdfColor.Black);
+        
+        // Test font sizes in inches  
+        renderer.DrawTextInches("0.167\" text (12pt)", 1f, 2.5f, 0.167f, PdfColor.Blue);
+        renderer.DrawTextInches("0.25\" text (18pt)", 1f, 3f, 0.25f, PdfColor.Blue);
+        renderer.DrawTextInches("0.33\" text (24pt)", 1f, 3.7f, 0.33f, PdfColor.Blue);
+        
+        // Test font sizes in pixels (at 300 DPI)
+        renderer.DrawTextPixels("50px text (12pt)", 300f, 1050f, 50f, PdfColor.Red);
+        renderer.DrawTextPixels("75px text (18pt)", 300f, 1150f, 75f, PdfColor.Red);
+        renderer.DrawTextPixels("100px text (24pt)", 300f, 1300f, 100f, PdfColor.Red);
+        
+        // Add labels to show the units
+        renderer.DrawTextPoints("Points:", 72f, 50f, 14f, PdfColor.Black);
+        renderer.DrawTextInches("Inches:", 1f, 2f, 0.194f, PdfColor.Blue);
+        renderer.DrawTextPixels("Pixels:", 300f, 900f, 58f, PdfColor.Red);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\FontSizeUnitsTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
 }

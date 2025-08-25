@@ -215,14 +215,19 @@ public class SimplePdfRenderer : IDisposable
         _content.AppendLine("ET");
     }
 
-    public void DrawTextInches(string text, float x, float y, float fontSize = 12f, PdfColor? color = null, PdfFont? font = null)
+    public void DrawTextInches(string text, float x, float y, float fontSizeInches = 0.167f, PdfColor? color = null, PdfFont? font = null)
     {
-        DrawText(text, InchesToPoints(x), InchesToPoints(y), fontSize, color, font);
+        DrawText(text, InchesToPoints(x), InchesToPoints(y), InchesToPoints(fontSizeInches), color, font);
     }
 
-    public void DrawTextPixels(string text, float x, float y, float fontSize = 12f, PdfColor? color = null, PdfFont? font = null)
+    public void DrawTextPixels(string text, float x, float y, float fontSizePixels = 16f, PdfColor? color = null, PdfFont? font = null)
     {
-        DrawText(text, PixelsToPoints(x), PixelsToPoints(y), fontSize, color, font);
+        DrawText(text, PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(fontSizePixels), color, font);
+    }
+
+    public void DrawTextPoints(string text, float x, float y, float fontSizePoints = 12f, PdfColor? color = null, PdfFont? font = null)
+    {
+        DrawText(text, x, y, fontSizePoints, color, font);
     }
 
     public void DrawRectangle(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
