@@ -1,38 +1,35 @@
 {
   "permissions": {
     "allow": [
-      "mcp__ide__getDiagnostics",
-      "Bash(dotnet test)",
-      "Bash(dotnet test:*)",
-      "Bash(dotnet build)",
-      "Bash(dir:*)",
-      "Bash(powershell:*)",
-      "Bash(dotnet run:*)",
-      "mcp__ide__executeCode",
-      "Bash(python:*)",
-      "Bash(pip install:*)",
-      "Bash(del create_logo.py)",
-      "Bash(del company_logo.png)",
-      "Bash(del company_logo_base64.txt)",
-      "Bash(rm:*)",
-      "Bash(dotnet add:*)",
-      "Bash(dotnet build:*)",
-      "Bash(dotnet remove:*)",
-      "Bash(csharp:*)",
-      "Bash(verbosity=normal)",
-      "Bash(verbosity=minimal)",
-      "Bash(dotnet clean:*)",
-      "Bash(timeout 30 dotnet test --filter \"GenerateFancyInvoice_CreatesProfessionalInvoicePDF\" --logger \"console;verbosity=detailed\")",
-      "Bash(ren:*)",
-      "Bash(mv:*)",
       "Bash(dotnet new:*)",
-      "Bash(rg:*)",
-      "Bash(git add:*)"
+      "Bash(dotnet sln add:*)",
+      "Bash(dotnet add:*)",
+      "Bash(dotnet add package:*)",
+      "Bash(dotnet build)",
+      "Bash(dotnet test:*)",
+      "Bash(dotnet run:*)",
+      "Read(/C:\\Users\\jon\\AppData\\Local\\Temp/**)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet clean:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)",
+      "Read(/C:\\output/**)"
     ],
     "deny": [],
     "ask": [],
     "additionalDirectories": [
-      "C:\\Output 2>\\dev"
+      "c:\\code\\RDL2PDF",
+      "C:\\c"
     ]
   }
 }
