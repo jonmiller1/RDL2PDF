@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text;
+using System.Drawing;
+using System.Drawing.Imaging;
 
 namespace FluentReports.Core.PdfRenderer;
 
@@ -8,6 +10,8 @@ public class SimplePdfRenderer : IDisposable
     private readonly StringBuilder _content = new();
     private readonly float _width;
     private readonly float _height;
+    private readonly Dictionary<string, int> _images = new();
+    private readonly List<(string objectData, byte[] streamData)> _imageData = new();
     private bool _disposed = false;
 
     public float DPI { get; set; } = 72f;
@@ -101,6 +105,67 @@ public class SimplePdfRenderer : IDisposable
         DrawText(text, PixelsToPoints(x), PixelsToPoints(y), fontSize, color);
     }
 
+    public void DrawImage(string imagePath, float x, float y, float width, float height)
+    {
+        if (!File.Exists(imagePath))
+            throw new FileNotFoundException($"Image file not found: {imagePath}");
+
+        var imageKey = imagePath;
+        if (!_images.ContainsKey(imageKey))
+        {
+            // Load and process image
+            var imageObjectName = $"Im{_images.Count + 1}";
+            var (objectData, streamData) = ProcessImage(imagePath);
+            _imageData.Add((objectData, streamData));
+            _images[imageKey] = _images.Count + 1;
+        }
+
+        var pdfY = ConvertY(y + height); // Convert to PDF coordinates and adjust for image height
+        var imageIndex = _images[imageKey];
+
+        _content.AppendLine("q"); // Save graphics state
+        _content.AppendLine($"{width:F2} 0 0 {height:F2} {x:F2} {pdfY:F2} cm"); // Transform matrix
+        _content.AppendLine($"/Im{imageIndex} Do"); // Draw image
+        _content.AppendLine("Q"); // Restore graphics state
+    }
+
+    public void DrawImageInches(string imagePath, float x, float y, float width, float height)
+    {
+        DrawImage(imagePath, InchesToPoints(x), InchesToPoints(y), InchesToPoints(width), InchesToPoints(height));
+    }
+
+    public void DrawImagePixels(string imagePath, float x, float y, float width, float height)
+    {
+        DrawImage(imagePath, PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(width), PixelsToPoints(height));
+    }
+
+    private (string objectData, byte[] streamData) ProcessImage(string imagePath)
+    {
+        using var image = System.Drawing.Image.FromFile(imagePath);
+        
+        // Convert to bitmap if needed
+        using var bitmap = new Bitmap(image);
+        
+        // Convert to JPEG format for PDF embedding
+        using var memoryStream = new MemoryStream();
+        bitmap.Save(memoryStream, ImageFormat.Jpeg);
+        var imageBytes = memoryStream.ToArray();
+        
+        // Create the object data (without the stream)
+        var objectData = $@"<<
+/Type /XObject
+/Subtype /Image
+/Width {bitmap.Width}
+/Height {bitmap.Height}
+/ColorSpace /DeviceRGB
+/BitsPerComponent 8
+/Filter /DCTDecode
+/Length {imageBytes.Length}
+>>";
+        
+        return (objectData, imageBytes);
+    }
+
     private string EscapeText(string text)
     {
         return text.Replace("\\", "\\\\")
@@ -116,89 +181,82 @@ public class SimplePdfRenderer : IDisposable
         var contentStream = _content.ToString();
         var contentBytes = Encoding.ASCII.GetBytes(contentStream);
         
-        var pdf = new StringBuilder();
-        
-        // PDF Header
-        pdf.AppendLine("%PDF-1.4");
+        using var pdfStream = new MemoryStream();
+        using var writer = new BinaryWriter(pdfStream, Encoding.ASCII);
         
         var positions = new List<long>();
         
+        // PDF Header
+        WriteText(writer, "%PDF-1.4\n");
+        
         // Object 1: Catalog
-        positions.Add(pdf.Length);
-        pdf.AppendLine("1 0 obj");
-        pdf.AppendLine("<<");
-        pdf.AppendLine("/Type /Catalog");
-        pdf.AppendLine("/Pages 2 0 R");
-        pdf.AppendLine(">>");
-        pdf.AppendLine("endobj");
+        positions.Add(pdfStream.Length);
+        WriteText(writer, "1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n");
         
         // Object 2: Pages
-        positions.Add(pdf.Length);
-        pdf.AppendLine("2 0 obj");
-        pdf.AppendLine("<<");
-        pdf.AppendLine("/Type /Pages");
-        pdf.AppendLine("/Count 1");
-        pdf.AppendLine("/Kids [3 0 R]");
-        pdf.AppendLine(">>");
-        pdf.AppendLine("endobj");
+        positions.Add(pdfStream.Length);
+        WriteText(writer, "2 0 obj\n<<\n/Type /Pages\n/Count 1\n/Kids [3 0 R]\n>>\nendobj\n");
         
         // Object 3: Page
-        positions.Add(pdf.Length);
-        pdf.AppendLine("3 0 obj");
-        pdf.AppendLine("<<");
-        pdf.AppendLine("/Type /Page");
-        pdf.AppendLine("/Parent 2 0 R");
-        pdf.AppendLine($"/MediaBox [0 0 {_width.ToString(CultureInfo.InvariantCulture)} {_height.ToString(CultureInfo.InvariantCulture)}]");
-        pdf.AppendLine("/Resources <<");
-        pdf.AppendLine("  /Font << /F1 4 0 R >>");
-        pdf.AppendLine(">>");
-        pdf.AppendLine("/Contents 5 0 R");
-        pdf.AppendLine(">>");
-        pdf.AppendLine("endobj");
+        positions.Add(pdfStream.Length);
+        WriteText(writer, "3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n");
+        WriteText(writer, $"/MediaBox [0 0 {_width.ToString(CultureInfo.InvariantCulture)} {_height.ToString(CultureInfo.InvariantCulture)}]\n");
+        WriteText(writer, "/Resources <<\n  /Font << /F1 4 0 R >>\n");
+        
+        // Add image resources if any
+        if (_images.Count > 0)
+        {
+            WriteText(writer, "  /XObject <<");
+            for (int i = 1; i <= _images.Count; i++)
+            {
+                WriteText(writer, $" /Im{i} {5 + i} 0 R");
+            }
+            WriteText(writer, " >>\n");
+        }
+        
+        WriteText(writer, ">>\n/Contents 5 0 R\n>>\nendobj\n");
         
         // Object 4: Font
-        positions.Add(pdf.Length);
-        pdf.AppendLine("4 0 obj");
-        pdf.AppendLine("<<");
-        pdf.AppendLine("/Type /Font");
-        pdf.AppendLine("/Subtype /Type1");
-        pdf.AppendLine("/BaseFont /Helvetica");
-        pdf.AppendLine(">>");
-        pdf.AppendLine("endobj");
+        positions.Add(pdfStream.Length);
+        WriteText(writer, "4 0 obj\n<<\n/Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\nendobj\n");
         
         // Object 5: Content Stream
-        positions.Add(pdf.Length);
-        pdf.AppendLine("5 0 obj");
-        pdf.AppendLine("<<");
-        pdf.AppendLine($"/Length {contentBytes.Length}");
-        pdf.AppendLine(">>");
-        pdf.AppendLine("stream");
-        pdf.Append(contentStream);
-        pdf.AppendLine("endstream");
-        pdf.AppendLine("endobj");
+        positions.Add(pdfStream.Length);
+        WriteText(writer, $"5 0 obj\n<<\n/Length {contentBytes.Length}\n>>\nstream\n");
+        writer.Write(contentBytes);
+        WriteText(writer, "endstream\nendobj\n");
+        
+        // Image objects (starting from object 6)
+        for (int i = 0; i < _imageData.Count; i++)
+        {
+            positions.Add(pdfStream.Length);
+            WriteText(writer, $"{6 + i} 0 obj\n");
+            WriteText(writer, _imageData[i].objectData);
+            WriteText(writer, "\nstream\n");
+            writer.Write(_imageData[i].streamData);
+            WriteText(writer, "endstream\nendobj\n");
+        }
         
         // Cross-reference table
-        var xrefPos = pdf.Length;
-        pdf.AppendLine("xref");
-        pdf.AppendLine("0 6");
-        pdf.AppendLine("0000000000 65535 f ");
+        var xrefPos = pdfStream.Length;
+        var totalObjects = 5 + _imageData.Count + 1;
+        WriteText(writer, $"xref\n0 {totalObjects}\n0000000000 65535 f \n");
         
         foreach (var pos in positions)
         {
-            pdf.AppendLine($"{pos:D10} 00000 n ");
+            WriteText(writer, $"{pos:D10} 00000 n \n");
         }
         
         // Trailer
-        pdf.AppendLine("trailer");
-        pdf.AppendLine("<<");
-        pdf.AppendLine("/Size 6");
-        pdf.AppendLine("/Root 1 0 R");
-        pdf.AppendLine(">>");
-        pdf.AppendLine("startxref");
-        pdf.AppendLine(xrefPos.ToString());
-        pdf.AppendLine("%%EOF");
+        WriteText(writer, $"trailer\n<<\n/Size {totalObjects}\n/Root 1 0 R\n>>\n");
+        WriteText(writer, $"startxref\n{xrefPos}\n%%EOF");
         
-        return Encoding.ASCII.GetBytes(pdf.ToString());
+        return pdfStream.ToArray();
+    }
+
+    private void WriteText(BinaryWriter writer, string text)
+    {
+        writer.Write(Encoding.ASCII.GetBytes(text));
     }
 
     public void Dispose()

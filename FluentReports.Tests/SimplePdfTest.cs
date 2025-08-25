@@ -133,4 +133,68 @@ public class SimplePdfTest
         Assert.NotNull(pdfBytes);
         Assert.True(pdfBytes.Length > 0);
     }
+
+    [Fact]
+    public void CanEmbedImages()
+    {
+        // Create a test image first
+        var testImagePath = @"c:\output\TestImage.jpg";
+        CreateTestImage(testImagePath);
+
+        // Create 8.5x11 inch page at 300 DPI
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Add title
+        renderer.DrawTextInches("Image Embedding Test", 1f, 0.5f, 18f, PdfColor.Black);
+        
+        // Draw images at different sizes and positions
+        renderer.DrawImageInches(testImagePath, 1f, 1f, 2f, 1.5f);  // 2" x 1.5" image
+        renderer.DrawTextInches("2\" x 1.5\" image", 1f, 2.7f, 12f, PdfColor.Blue);
+        
+        renderer.DrawImageInches(testImagePath, 4f, 1f, 1f, 1f);    // 1" x 1" square
+        renderer.DrawTextInches("1\" x 1\" square", 4f, 2.2f, 12f, PdfColor.Blue);
+        
+        renderer.DrawImageInches(testImagePath, 6f, 1f, 1.5f, 2f);  // 1.5" x 2" portrait
+        renderer.DrawTextInches("1.5\" x 2\" portrait", 6f, 3.2f, 12f, PdfColor.Blue);
+        
+        // Draw same image multiple times (should reuse)
+        renderer.DrawImageInches(testImagePath, 1f, 4f, 0.75f, 0.75f);
+        renderer.DrawImageInches(testImagePath, 2f, 4f, 0.75f, 0.75f);
+        renderer.DrawImageInches(testImagePath, 3f, 4f, 0.75f, 0.75f);
+        renderer.DrawTextInches("Same image reused 3 times", 1f, 5f, 12f, PdfColor.Green);
+        
+        // Test pixel-based positioning
+        renderer.DrawImagePixels(testImagePath, 300, 1800, 150, 150); // 1" square at 300 DPI
+        renderer.DrawTextPixels("1\" square using pixels", 300, 1980, 12f, PdfColor.Red);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\ImageTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
+
+    private void CreateTestImage(string path)
+    {
+        // Create a simple test image with some graphics
+        using var bitmap = new System.Drawing.Bitmap(400, 300);
+        using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+        
+        // Fill background
+        graphics.Clear(System.Drawing.Color.LightBlue);
+        
+        // Draw some shapes
+        using var redBrush = new System.Drawing.SolidBrush(System.Drawing.Color.Red);
+        using var greenPen = new System.Drawing.Pen(System.Drawing.Color.Green, 3);
+        using var font = new System.Drawing.Font("Arial", 24, System.Drawing.FontStyle.Bold);
+        using var blackBrush = new System.Drawing.SolidBrush(System.Drawing.Color.Black);
+        
+        graphics.FillEllipse(redBrush, 50, 50, 100, 100);
+        graphics.DrawRectangle(greenPen, 200, 50, 120, 80);
+        graphics.DrawString("TEST", font, blackBrush, 150, 180);
+        
+        // Save as JPEG
+        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? "");
+        bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Jpeg);
+    }
 }
