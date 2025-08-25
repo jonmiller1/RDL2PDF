@@ -163,7 +163,7 @@ public class SimplePdfRenderer : IDisposable
 
     private float ConvertY(float y) => _height - y;
 
-    public void DrawLine(float x1, float y1, float x2, float y2, float lineWidth = 1f, PdfColor? color = null)
+    public void DrawLine(float x1, float y1, float x2, float y2, float lineWidth = 1f, PdfColor? color = null, LineStyle? style = null)
     {
         var pdfY1 = ConvertY(y1);
         var pdfY2 = ConvertY(y2);
@@ -176,29 +176,57 @@ public class SimplePdfRenderer : IDisposable
         }
         
         _content.AppendLine($"{lineWidth:F2} w");
+        
+        // Apply line style
+        if (style != null)
+        {
+            // Set line cap
+            _content.AppendLine($"{(int)style.Cap} J");
+            
+            // Set line join  
+            _content.AppendLine($"{(int)style.Join} j");
+            
+            // Set dash pattern
+            if (style.DashArray != null && style.DashArray.Length > 0)
+            {
+                var dashPattern = string.Join(" ", style.DashArray.Select(d => d.ToString("F2")));
+                _content.AppendLine($"[{dashPattern}] 0 d");
+            }
+        }
+        
         _content.AppendLine($"{x1:F2} {pdfY1:F2} m");
         _content.AppendLine($"{x2:F2} {pdfY2:F2} l");
         _content.AppendLine("S");
         _content.AppendLine("Q");
     }
 
-    public void DrawLineInches(float x1, float y1, float x2, float y2, float lineWidth = 1f, PdfColor? color = null)
+    public void DrawLineInches(float x1, float y1, float x2, float y2, float lineWidth = 1f, PdfColor? color = null, LineStyle? style = null)
     {
-        DrawLine(InchesToPoints(x1), InchesToPoints(y1), InchesToPoints(x2), InchesToPoints(y2), lineWidth, color);
+        DrawLine(InchesToPoints(x1), InchesToPoints(y1), InchesToPoints(x2), InchesToPoints(y2), lineWidth, color, style);
     }
 
-    public void DrawLinePixels(float x1, float y1, float x2, float y2, float lineWidth = 1f, PdfColor? color = null)
+    public void DrawLinePixels(float x1, float y1, float x2, float y2, float lineWidth = 1f, PdfColor? color = null, LineStyle? style = null)
     {
-        DrawLine(PixelsToPoints(x1), PixelsToPoints(y1), PixelsToPoints(x2), PixelsToPoints(y2), lineWidth, color);
+        DrawLine(PixelsToPoints(x1), PixelsToPoints(y1), PixelsToPoints(x2), PixelsToPoints(y2), lineWidth, color, style);
     }
 
-    public void DrawText(string text, float x, float y, float fontSize = 12f, PdfColor? color = null, PdfFont? font = null)
+    public void DrawText(string text, float x, float y, float fontSize = 12f, PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left)
     {
         if (string.IsNullOrEmpty(text)) return;
         
         // Use Helvetica as default font if none specified
         font ??= PdfFont.Helvetica;
         var fontIndex = GetOrAddFont(font);
+        
+        // Calculate text width for alignment
+        var textWidth = EstimateTextWidth(text, fontSize);
+        var adjustedX = alignment switch
+        {
+            TextAlignment.Center => x - (textWidth / 2),
+            TextAlignment.Right => x - textWidth,
+            TextAlignment.Justified => x, // For now, treat justified as left-aligned
+            _ => x // Left alignment (default)
+        };
         
         var pdfY = ConvertY(y);
         
@@ -210,37 +238,190 @@ public class SimplePdfRenderer : IDisposable
         }
         
         _content.AppendLine($"/F{fontIndex} {fontSize:F2} Tf");
-        _content.AppendLine($"{x:F2} {pdfY:F2} Td");
+        _content.AppendLine($"{adjustedX:F2} {pdfY:F2} Td");
         _content.AppendLine($"({EscapeText(text)}) Tj");
         _content.AppendLine("ET");
     }
 
-    public void DrawTextInches(string text, float x, float y, float fontSizeInches = 0.167f, PdfColor? color = null, PdfFont? font = null)
+    private float EstimateTextWidth(string text, float fontSize)
     {
-        DrawText(text, InchesToPoints(x), InchesToPoints(y), InchesToPoints(fontSizeInches), color, font);
+        // More accurate character width estimation based on Helvetica metrics
+        // Character widths in thousandths of an em unit (font size)
+        var totalWidth = 0f;
+        
+        foreach (char c in text)
+        {
+            var charWidth = GetCharacterWidth(c);
+            totalWidth += charWidth;
+        }
+        
+        // Convert from thousandths of em to points
+        return totalWidth * fontSize / 1000f;
+    }
+    
+    private float GetCharacterWidth(char c)
+    {
+        // Helvetica character widths in thousandths of em unit
+        // These are approximate values for common characters
+        return c switch
+        {
+            ' ' => 278f,  // space
+            '!' => 278f,
+            '"' => 355f,
+            '#' => 556f,
+            '$' => 556f,
+            '%' => 889f,
+            '&' => 667f,
+            '\'' => 191f,
+            '(' => 333f,
+            ')' => 333f,
+            '*' => 389f,
+            '+' => 584f,
+            ',' => 278f,
+            '-' => 333f,
+            '.' => 278f,
+            '/' => 278f,
+            '0' => 556f,
+            '1' => 556f,
+            '2' => 556f,
+            '3' => 556f,
+            '4' => 556f,
+            '5' => 556f,
+            '6' => 556f,
+            '7' => 556f,
+            '8' => 556f,
+            '9' => 556f,
+            ':' => 278f,
+            ';' => 278f,
+            '<' => 584f,
+            '=' => 584f,
+            '>' => 584f,
+            '?' => 556f,
+            '@' => 1015f,
+            'A' => 667f,
+            'B' => 667f,
+            'C' => 722f,
+            'D' => 722f,
+            'E' => 667f,
+            'F' => 611f,
+            'G' => 778f,
+            'H' => 722f,
+            'I' => 278f,
+            'J' => 500f,
+            'K' => 667f,
+            'L' => 556f,
+            'M' => 833f,
+            'N' => 722f,
+            'O' => 778f,
+            'P' => 667f,
+            'Q' => 778f,
+            'R' => 722f,
+            'S' => 667f,
+            'T' => 611f,
+            'U' => 722f,
+            'V' => 667f,
+            'W' => 944f,
+            'X' => 667f,
+            'Y' => 667f,
+            'Z' => 611f,
+            '[' => 278f,
+            '\\' => 278f,
+            ']' => 278f,
+            '^' => 469f,
+            '_' => 556f,
+            '`' => 333f,
+            'a' => 556f,
+            'b' => 556f,
+            'c' => 500f,
+            'd' => 556f,
+            'e' => 556f,
+            'f' => 278f,
+            'g' => 556f,
+            'h' => 556f,
+            'i' => 222f,
+            'j' => 222f,
+            'k' => 500f,
+            'l' => 222f,
+            'm' => 833f,
+            'n' => 556f,
+            'o' => 556f,
+            'p' => 556f,
+            'q' => 556f,
+            'r' => 333f,
+            's' => 500f,
+            't' => 278f,
+            'u' => 556f,
+            'v' => 500f,
+            'w' => 722f,
+            'x' => 500f,
+            'y' => 500f,
+            'z' => 500f,
+            '{' => 334f,
+            '|' => 260f,
+            '}' => 334f,
+            '~' => 584f,
+            _ => 556f  // Default width for unknown characters
+        };
     }
 
-    public void DrawTextPixels(string text, float x, float y, float fontSizePixels = 16f, PdfColor? color = null, PdfFont? font = null)
+    public float MeasureTextWidth(string text, float fontSize)
     {
-        DrawText(text, PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(fontSizePixels), color, font);
+        return EstimateTextWidth(text, fontSize);
+    }
+    
+    public float MeasureTextWidthInches(string text, float fontSizeInches)
+    {
+        return PointsToInches(EstimateTextWidth(text, InchesToPoints(fontSizeInches)));
+    }
+    
+    public float MeasureTextWidthPixels(string text, float fontSizePixels)
+    {
+        return PointsToPixels(EstimateTextWidth(text, PixelsToPoints(fontSizePixels)));
     }
 
-    public void DrawTextPoints(string text, float x, float y, float fontSizePoints = 12f, PdfColor? color = null, PdfFont? font = null)
+    public void DrawTextInches(string text, float x, float y, float fontSizeInches = 0.167f, PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left)
     {
-        DrawText(text, x, y, fontSizePoints, color, font);
+        DrawText(text, InchesToPoints(x), InchesToPoints(y), InchesToPoints(fontSizeInches), color, font, alignment);
     }
 
-    public void DrawRectangle(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    public void DrawTextPixels(string text, float x, float y, float fontSizePixels = 16f, PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left)
+    {
+        DrawText(text, PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(fontSizePixels), color, font, alignment);
+    }
+
+    public void DrawTextPoints(string text, float x, float y, float fontSizePoints = 12f, PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left)
+    {
+        DrawText(text, x, y, fontSizePoints, color, font, alignment);
+    }
+
+    public void DrawRectangle(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null, LineStyle? strokeStyle = null)
     {
         var pdfY = ConvertY(y + height); // Convert to PDF coordinates and adjust for rectangle height
         
         _content.AppendLine("q"); // Save graphics state
         
-        // Set stroke color if provided
+        // Set stroke properties if provided
         if (strokeColor != null)
         {
             _content.AppendLine($"{strokeColor.R:F3} {strokeColor.G:F3} {strokeColor.B:F3} RG");
             _content.AppendLine($"{lineWidth:F2} w");
+            
+            // Apply stroke style
+            if (strokeStyle != null)
+            {
+                // Set line cap
+                _content.AppendLine($"{(int)strokeStyle.Cap} J");
+                
+                // Set line join  
+                _content.AppendLine($"{(int)strokeStyle.Join} j");
+                
+                // Set dash pattern
+                if (strokeStyle.DashArray != null && strokeStyle.DashArray.Length > 0)
+                {
+                    var dashPattern = string.Join(" ", strokeStyle.DashArray.Select(d => d.ToString("F2")));
+                    _content.AppendLine($"[{dashPattern}] 0 d");
+                }
+            }
         }
         
         // Set fill color if provided
@@ -263,27 +444,44 @@ public class SimplePdfRenderer : IDisposable
         _content.AppendLine("Q"); // Restore graphics state
     }
 
-    public void DrawRectangleInches(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    public void DrawRectangleInches(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null, LineStyle? strokeStyle = null)
     {
-        DrawRectangle(InchesToPoints(x), InchesToPoints(y), InchesToPoints(width), InchesToPoints(height), lineWidth, strokeColor, fillColor);
+        DrawRectangle(InchesToPoints(x), InchesToPoints(y), InchesToPoints(width), InchesToPoints(height), lineWidth, strokeColor, fillColor, strokeStyle);
     }
 
-    public void DrawRectanglePixels(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    public void DrawRectanglePixels(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null, LineStyle? strokeStyle = null)
     {
-        DrawRectangle(PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(width), PixelsToPoints(height), lineWidth, strokeColor, fillColor);
+        DrawRectangle(PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(width), PixelsToPoints(height), lineWidth, strokeColor, fillColor, strokeStyle);
     }
 
-    public void DrawCircle(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    public void DrawCircle(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null, LineStyle? strokeStyle = null)
     {
         var pdfY = ConvertY(centerY); // Convert center Y to PDF coordinates
         
         _content.AppendLine("q"); // Save graphics state
         
-        // Set stroke color if provided
+        // Set stroke properties if provided
         if (strokeColor != null)
         {
             _content.AppendLine($"{strokeColor.R:F3} {strokeColor.G:F3} {strokeColor.B:F3} RG");
             _content.AppendLine($"{lineWidth:F2} w");
+            
+            // Apply stroke style
+            if (strokeStyle != null)
+            {
+                // Set line cap
+                _content.AppendLine($"{(int)strokeStyle.Cap} J");
+                
+                // Set line join  
+                _content.AppendLine($"{(int)strokeStyle.Join} j");
+                
+                // Set dash pattern
+                if (strokeStyle.DashArray != null && strokeStyle.DashArray.Length > 0)
+                {
+                    var dashPattern = string.Join(" ", strokeStyle.DashArray.Select(d => d.ToString("F2")));
+                    _content.AppendLine($"[{dashPattern}] 0 d");
+                }
+            }
         }
         
         // Set fill color if provided
@@ -312,14 +510,14 @@ public class SimplePdfRenderer : IDisposable
         _content.AppendLine("Q"); // Restore graphics state
     }
 
-    public void DrawCircleInches(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    public void DrawCircleInches(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null, LineStyle? strokeStyle = null)
     {
-        DrawCircle(InchesToPoints(centerX), InchesToPoints(centerY), InchesToPoints(radius), lineWidth, strokeColor, fillColor);
+        DrawCircle(InchesToPoints(centerX), InchesToPoints(centerY), InchesToPoints(radius), lineWidth, strokeColor, fillColor, strokeStyle);
     }
 
-    public void DrawCirclePixels(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    public void DrawCirclePixels(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null, LineStyle? strokeStyle = null)
     {
-        DrawCircle(PixelsToPoints(centerX), PixelsToPoints(centerY), PixelsToPoints(radius), lineWidth, strokeColor, fillColor);
+        DrawCircle(PixelsToPoints(centerX), PixelsToPoints(centerY), PixelsToPoints(radius), lineWidth, strokeColor, fillColor, strokeStyle);
     }
 
     public void DrawImage(string imagePath, float x, float y, float width, float height)
@@ -354,6 +552,47 @@ public class SimplePdfRenderer : IDisposable
     public void DrawImagePixels(string imagePath, float x, float y, float width, float height)
     {
         DrawImage(imagePath, PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(width), PixelsToPoints(height));
+    }
+
+    public void SetClippingRegion(ClippingRegion clippingRegion)
+    {
+        _content.AppendLine("q"); // Save graphics state
+        clippingRegion.ApplyToContent(_content, ConvertY);
+    }
+
+    public void SetRectangularClip(float x, float y, float width, float height)
+    {
+        SetClippingRegion(new RectangularClip(x, y, width, height));
+    }
+
+    public void SetRectangularClipInches(float x, float y, float width, float height)
+    {
+        SetRectangularClip(InchesToPoints(x), InchesToPoints(y), InchesToPoints(width), InchesToPoints(height));
+    }
+
+    public void SetRectangularClipPixels(float x, float y, float width, float height)
+    {
+        SetRectangularClip(PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(width), PixelsToPoints(height));
+    }
+
+    public void SetCircularClip(float centerX, float centerY, float radius)
+    {
+        SetClippingRegion(new CircularClip(centerX, centerY, radius));
+    }
+
+    public void SetCircularClipInches(float centerX, float centerY, float radius)
+    {
+        SetCircularClip(InchesToPoints(centerX), InchesToPoints(centerY), InchesToPoints(radius));
+    }
+
+    public void SetCircularClipPixels(float centerX, float centerY, float radius)
+    {
+        SetCircularClip(PixelsToPoints(centerX), PixelsToPoints(centerY), PixelsToPoints(radius));
+    }
+
+    public void RestoreGraphicsState()
+    {
+        _content.AppendLine("Q"); // Restore graphics state (removes clipping)
     }
 
     private (string objectData, byte[] streamData) ProcessImage(string imagePath)

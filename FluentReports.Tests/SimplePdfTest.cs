@@ -385,4 +385,262 @@ public class SimplePdfTest
         Assert.NotNull(pdfBytes);
         Assert.True(pdfBytes.Length > 0);
     }
+
+    [Fact]
+    public void CanAlignText()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Draw reference lines to show alignment positions
+        float leftPos = 1f;
+        float centerPos = 4.25f; // 8.5/2
+        float rightPos = 7.5f;
+        
+        // Vertical lines to show alignment positions
+        renderer.DrawLineInches(leftPos, 1f, leftPos, 10f, 0.5f, PdfColor.LightGray);
+        renderer.DrawLineInches(centerPos, 1f, centerPos, 10f, 0.5f, PdfColor.LightGray);
+        renderer.DrawLineInches(rightPos, 1f, rightPos, 10f, 0.5f, PdfColor.LightGray);
+        
+        // Left aligned text
+        renderer.DrawTextInches("Left Aligned Text", leftPos, 2f, 0.2f, PdfColor.Black, alignment: TextAlignment.Left);
+        renderer.DrawTextInches("This text starts at the left position", leftPos, 2.5f, 0.15f, PdfColor.Blue, alignment: TextAlignment.Left);
+        
+        // Center aligned text  
+        renderer.DrawTextInches("Center Aligned Text", centerPos, 4f, 0.2f, PdfColor.Black, alignment: TextAlignment.Center);
+        renderer.DrawTextInches("This text is centered", centerPos, 4.5f, 0.15f, PdfColor.Green, alignment: TextAlignment.Center);
+        
+        // Right aligned text
+        renderer.DrawTextInches("Right Aligned Text", rightPos, 6f, 0.2f, PdfColor.Black, alignment: TextAlignment.Right);
+        renderer.DrawTextInches("This text ends at the right position", rightPos, 6.5f, 0.15f, PdfColor.Red, alignment: TextAlignment.Right);
+        
+        // Mixed alignment demonstration
+        renderer.DrawTextInches("Left", leftPos, 8f, 0.18f, PdfColor.Blue, alignment: TextAlignment.Left);
+        renderer.DrawTextInches("Center", centerPos, 8f, 0.18f, PdfColor.Green, alignment: TextAlignment.Center);
+        renderer.DrawTextInches("Right", rightPos, 8f, 0.18f, PdfColor.Red, alignment: TextAlignment.Right);
+        
+        // Labels for the reference lines
+        renderer.DrawTextInches("L", leftPos, 0.5f, 0.12f, PdfColor.Black, alignment: TextAlignment.Center);
+        renderer.DrawTextInches("C", centerPos, 0.5f, 0.12f, PdfColor.Black, alignment: TextAlignment.Center);
+        renderer.DrawTextInches("R", rightPos, 0.5f, 0.12f, PdfColor.Black, alignment: TextAlignment.Center);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\TextAlignmentTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
+
+    [Fact]
+    public void CanUseLineStyles()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        float y = 1f;
+        float lineSpacing = 0.5f;
+        
+        // Draw lines with different patterns
+        renderer.DrawTextInches("Solid Line:", 0.5f, y, 0.15f, PdfColor.Black);
+        renderer.DrawLineInches(2f, y + 0.05f, 7.5f, y + 0.05f, 2f, PdfColor.Black, LineStyle.Solid);
+        y += lineSpacing;
+        
+        renderer.DrawTextInches("Dashed Line:", 0.5f, y, 0.15f, PdfColor.Black);
+        renderer.DrawLineInches(2f, y + 0.05f, 7.5f, y + 0.05f, 2f, PdfColor.Blue, LineStyle.Dashed);
+        y += lineSpacing;
+        
+        renderer.DrawTextInches("Dotted Line:", 0.5f, y, 0.15f, PdfColor.Black);
+        renderer.DrawLineInches(2f, y + 0.05f, 7.5f, y + 0.05f, 2f, PdfColor.Red, LineStyle.Dotted);
+        y += lineSpacing;
+        
+        renderer.DrawTextInches("Dash-Dot Line:", 0.5f, y, 0.15f, PdfColor.Black);
+        renderer.DrawLineInches(2f, y + 0.05f, 7.5f, y + 0.05f, 2f, PdfColor.Green, LineStyle.DashDot);
+        y += lineSpacing;
+        
+        renderer.DrawTextInches("Dash-Dot-Dot Line:", 0.5f, y, 0.15f, PdfColor.Black);
+        renderer.DrawLineInches(2f, y + 0.05f, 7.5f, y + 0.05f, 2f, PdfColor.Magenta, LineStyle.DashDotDot);
+        y += lineSpacing;
+        
+        // Custom dash pattern
+        renderer.DrawTextInches("Custom Pattern:", 0.5f, y, 0.15f, PdfColor.Black);
+        var customStyle = new LineStyle(new[] { 10f, 5f, 2f, 5f }, LineCap.Round);
+        renderer.DrawLineInches(2f, y + 0.05f, 7.5f, y + 0.05f, 3f, PdfColor.Cyan, customStyle);
+        y += lineSpacing * 2;
+        
+        // Test line caps with thick lines
+        renderer.DrawTextInches("Line Caps:", 0.5f, y, 0.18f, PdfColor.Black);
+        y += 0.3f;
+        
+        renderer.DrawTextInches("Butt Cap:", 1f, y, 0.12f, PdfColor.Black);
+        renderer.DrawLineInches(2.5f, y + 0.05f, 4.5f, y + 0.05f, 8f, PdfColor.Red, new LineStyle(LineCap.Butt));
+        
+        renderer.DrawTextInches("Round Cap:", 1f, y + 0.3f, 0.12f, PdfColor.Black);
+        renderer.DrawLineInches(2.5f, y + 0.35f, 4.5f, y + 0.35f, 8f, PdfColor.Blue, new LineStyle(LineCap.Round));
+        
+        renderer.DrawTextInches("Square Cap:", 1f, y + 0.6f, 0.12f, PdfColor.Black);
+        renderer.DrawLineInches(2.5f, y + 0.65f, 4.5f, y + 0.65f, 8f, PdfColor.Green, new LineStyle(LineCap.Square));
+        
+        y += 1.2f;
+        
+        // Test shapes with line styles
+        renderer.DrawTextInches("Shapes with Line Styles:", 0.5f, y, 0.18f, PdfColor.Black);
+        y += 0.4f;
+        
+        // Dashed rectangle
+        renderer.DrawRectangleInches(1f, y, 2f, 1f, 3f, PdfColor.Blue, strokeStyle: LineStyle.Dashed);
+        
+        // Dotted circle
+        renderer.DrawCircleInches(5f, y + 0.5f, 0.5f, 2f, PdfColor.Red, strokeStyle: LineStyle.Dotted);
+        
+        // Custom pattern rectangle with round joins
+        var roundJoinStyle = new LineStyle(new[] { 8f, 4f }, LineCap.Round, LineJoin.Round);
+        renderer.DrawRectangleInches(6.5f, y, 1.5f, 1f, 4f, PdfColor.Green, strokeStyle: roundJoinStyle);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\LineStylesTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
+
+    [Fact]
+    public void CanUseClipping()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Draw some background shapes without clipping
+        renderer.DrawTextInches("Without Clipping:", 0.5f, 1f, 0.18f, PdfColor.Black);
+        renderer.DrawRectangleInches(1f, 1.5f, 3f, 1.5f, 2f, PdfColor.Blue, PdfColor.LightGray);
+        renderer.DrawCircleInches(2.5f, 2.8f, 0.8f, 2f, PdfColor.Red, PdfColor.Yellow);
+        renderer.DrawLineInches(0.5f, 2.2f, 4.5f, 2.2f, 3f, PdfColor.Green);
+        
+        // Test rectangular clipping
+        renderer.DrawTextInches("Rectangular Clipping:", 0.5f, 4f, 0.18f, PdfColor.Black);
+        
+        // Set rectangular clipping region
+        renderer.SetRectangularClipInches(1f, 4.5f, 2f, 1.5f);
+        
+        // Draw the same shapes - they should be clipped
+        renderer.DrawRectangleInches(0.5f, 4.5f, 3f, 1.5f, 2f, PdfColor.Blue, PdfColor.LightGray);
+        renderer.DrawCircleInches(2f, 5.7f, 0.8f, 2f, PdfColor.Red, PdfColor.Yellow);
+        renderer.DrawLineInches(0f, 5.2f, 4f, 5.2f, 3f, PdfColor.Green);
+        
+        // Restore graphics state (remove clipping)
+        renderer.RestoreGraphicsState();
+        
+        // Draw clipping region boundary for reference
+        renderer.DrawRectangleInches(1f, 4.5f, 2f, 1.5f, 1f, PdfColor.Black, strokeStyle: LineStyle.Dashed);
+        
+        // Test circular clipping
+        renderer.DrawTextInches("Circular Clipping:", 0.5f, 7f, 0.18f, PdfColor.Black);
+        
+        // Set circular clipping region
+        renderer.SetCircularClipInches(2.5f, 8.5f, 1f);
+        
+        // Draw shapes that will be clipped to circle
+        renderer.DrawRectangleInches(1.5f, 7.5f, 2f, 2f, 2f, PdfColor.Magenta, PdfColor.Cyan);
+        renderer.DrawLineInches(1f, 8f, 4f, 9f, 4f, PdfColor.Red);
+        renderer.DrawLineInches(4f, 8f, 1f, 9f, 4f, PdfColor.Blue);
+        renderer.DrawTextInches("CLIPPED", 2f, 8.3f, 0.15f, PdfColor.Black);
+        
+        // Restore graphics state
+        renderer.RestoreGraphicsState();
+        
+        // Draw circle boundary for reference
+        renderer.DrawCircleInches(2.5f, 8.5f, 1f, 1f, PdfColor.Black, strokeStyle: LineStyle.Dotted);
+        
+        // Test nested clipping (clip within clip)
+        renderer.DrawTextInches("Nested Clipping:", 5f, 2f, 0.18f, PdfColor.Black);
+        
+        // First level clipping - large rectangle
+        renderer.SetRectangularClipInches(5.5f, 2.5f, 2.5f, 3f);
+        renderer.DrawRectangleInches(5f, 2.5f, 3.5f, 3f, 2f, PdfColor.Green, PdfColor.LightGray);
+        
+        // Second level clipping - smaller circle inside rectangle
+        renderer.SetCircularClipInches(6.75f, 4f, 0.8f);
+        renderer.DrawRectangleInches(5.5f, 3f, 2.5f, 2f, 3f, PdfColor.Red, PdfColor.Yellow);
+        renderer.DrawTextInches("NESTED", 6.2f, 3.8f, 0.12f, PdfColor.Black);
+        
+        // Restore both clipping levels
+        renderer.RestoreGraphicsState(); // Remove circular clip
+        renderer.RestoreGraphicsState(); // Remove rectangular clip
+        
+        // Draw reference boundaries
+        renderer.DrawRectangleInches(5.5f, 2.5f, 2.5f, 3f, 1f, PdfColor.Black, strokeStyle: LineStyle.Dashed);
+        renderer.DrawCircleInches(6.75f, 4f, 0.8f, 1f, PdfColor.Black, strokeStyle: LineStyle.Dotted);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\ClippingTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
+
+    [Fact]
+    public void CanMeasureTextWidth()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        var testStrings = new[]
+        {
+            "Hello World",
+            "iiiiiii",     // narrow characters
+            "MMMMMMMM",    // wide characters
+            "123.45",
+            "Text Alignment Test"
+        };
+        
+        float y = 1f;
+        renderer.DrawTextInches("Text Width Measurement Demo:", 0.5f, y, 0.2f, PdfColor.Black);
+        y += 0.5f;
+        
+        foreach (var text in testStrings)
+        {
+            var fontSize = 0.167f; // 12pt
+            var textWidth = renderer.MeasureTextWidthInches(text, fontSize);
+            
+            // Draw text aligned to left at 2 inches
+            renderer.DrawTextInches(text, 2f, y, fontSize, PdfColor.Black);
+            
+            // Draw a line showing the measured width
+            renderer.DrawLineInches(2f, y - 0.05f, 2f + textWidth, y - 0.05f, 1f, PdfColor.Red);
+            
+            // Show the measurement
+            renderer.DrawTextInches($"Width: {textWidth:F3}\"", 5f, y, 0.12f, PdfColor.Blue);
+            
+            y += 0.3f;
+        }
+        
+        // Test different font sizes
+        y += 0.3f;
+        renderer.DrawTextInches("Font Size Scaling:", 0.5f, y, 0.18f, PdfColor.Black);
+        y += 0.3f;
+        
+        var testText = "Same text";
+        var fontSizes = new[] { 0.1f, 0.15f, 0.2f, 0.25f }; // Different sizes in inches
+        
+        foreach (var fontSize in fontSizes)
+        {
+            var textWidth = renderer.MeasureTextWidthInches(testText, fontSize);
+            
+            renderer.DrawTextInches(testText, 2f, y, fontSize, PdfColor.Black);
+            renderer.DrawLineInches(2f, y - 0.02f, 2f + textWidth, y - 0.02f, 1f, PdfColor.Green);
+            renderer.DrawTextInches($"{fontSize * 72:F0}pt - {textWidth:F3}\"", 5f, y, 0.1f, PdfColor.Blue);
+            
+            y += fontSize + 0.1f; // Space based on font size
+        }
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\TextMeasurementTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+        
+        // Test that measurements are reasonable
+        var helloWidth = renderer.MeasureTextWidthInches("Hello World", 0.167f);
+        Assert.True(helloWidth > 0.5f && helloWidth < 2f); // Should be reasonable width
+        
+        // Test that wider text measures larger
+        var narrowWidth = renderer.MeasureTextWidthInches("iii", 0.167f);
+        var wideWidth = renderer.MeasureTextWidthInches("MMM", 0.167f);
+        Assert.True(wideWidth > narrowWidth);
+    }
 }
