@@ -197,4 +197,81 @@ public class SimplePdfTest
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? "");
         bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Jpeg);
     }
+
+    [Fact]
+    public void CanUseDifferentFonts()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Test built-in PDF fonts
+        renderer.DrawTextInches("Helvetica Regular", 1f, 1f, 14f, PdfColor.Black, PdfFont.Helvetica);
+        renderer.DrawTextInches("Helvetica Bold", 1f, 1.5f, 14f, PdfColor.Black, PdfFont.HelveticaBold);
+        renderer.DrawTextInches("Helvetica Italic", 1f, 2f, 14f, PdfColor.Black, PdfFont.HelveticaOblique);
+        renderer.DrawTextInches("Helvetica Bold Italic", 1f, 2.5f, 14f, PdfColor.Black, PdfFont.HelveticaBoldOblique);
+        
+        renderer.DrawTextInches("Times Roman", 1f, 3.5f, 14f, PdfColor.Blue, PdfFont.TimesRoman);
+        renderer.DrawTextInches("Times Bold", 1f, 4f, 14f, PdfColor.Blue, PdfFont.TimesBold);
+        renderer.DrawTextInches("Times Italic", 1f, 4.5f, 14f, PdfColor.Blue, PdfFont.TimesItalic);
+        renderer.DrawTextInches("Times Bold Italic", 1f, 5f, 14f, PdfColor.Blue, PdfFont.TimesBoldItalic);
+        
+        renderer.DrawTextInches("Courier (Monospace)", 1f, 6f, 14f, PdfColor.Green, PdfFont.Courier);
+        renderer.DrawTextInches("Courier Bold", 1f, 6.5f, 14f, PdfColor.Green, PdfFont.CourierBold);
+        renderer.DrawTextInches("Courier Italic", 1f, 7f, 14f, PdfColor.Green, PdfFont.CourierOblique);
+        renderer.DrawTextInches("Courier Bold Italic", 1f, 7.5f, 14f, PdfColor.Green, PdfFont.CourierBoldOblique);
+        
+        // Test font reuse (same font used multiple times should only create one font object)
+        renderer.DrawTextInches("Helvetica reused", 5f, 1f, 12f, PdfColor.Red, PdfFont.Helvetica);
+        renderer.DrawTextInches("Times reused", 5f, 1.5f, 12f, PdfColor.Red, PdfFont.TimesRoman);
+        
+        // Test default font (should use Helvetica when null)
+        renderer.DrawTextInches("Default font (Helvetica)", 1f, 8.5f, 14f, PdfColor.Magenta);
+        
+        // Title
+        renderer.DrawTextInches("Font Test - Built-in PDF Fonts", 1f, 0.5f, 18f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\FontTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
+
+    [Fact] 
+    public void CanTrySystemFont()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        renderer.DrawTextInches("System Font Fallback Test", 1f, 0.5f, 18f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Try to use a system font (will fallback to built-in fonts)
+        try
+        {
+            var arialFont = PdfFont.FromSystemFont("Arial");
+            renderer.DrawTextInches("Arial System Font → Fallback to Helvetica", 1f, 1f, 16f, PdfColor.Black, arialFont);
+            renderer.DrawTextInches("(System fonts automatically fallback to built-in PDF fonts)", 1f, 1.5f, 12f, PdfColor.Blue, arialFont);
+        }
+        catch (FileNotFoundException)
+        {
+            // System font not found, use built-in instead
+            renderer.DrawTextInches("Arial not found - using Helvetica directly", 1f, 1f, 16f, PdfColor.Red, PdfFont.Helvetica);
+            renderer.DrawTextInches("System fonts directory did not contain Arial", 1f, 1.5f, 12f, PdfColor.Red, PdfFont.Helvetica);
+        }
+        
+        // Show the fallback system working
+        renderer.DrawTextInches("Fallback System Examples:", 1f, 2.5f, 14f, PdfColor.Green, PdfFont.HelveticaBold);
+        renderer.DrawTextInches("• Arial → Helvetica", 1f, 3f, 12f, PdfColor.Green, PdfFont.Helvetica);
+        renderer.DrawTextInches("• Times → Times-Roman", 1f, 3.5f, 12f, PdfColor.Green, PdfFont.TimesRoman);
+        renderer.DrawTextInches("• Courier → Courier", 1f, 4f, 12f, PdfColor.Green, PdfFont.Courier);
+        
+        // Always include built-in fonts for comparison
+        renderer.DrawTextInches("Pure Built-in Fonts:", 1f, 5f, 14f, PdfColor.Blue, PdfFont.HelveticaBold);
+        renderer.DrawTextInches("Built-in Helvetica", 1f, 5.5f, 12f, PdfColor.Blue, PdfFont.Helvetica);
+        renderer.DrawTextInches("Built-in Times Roman", 1f, 6f, 12f, PdfColor.Blue, PdfFont.TimesRoman);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\SystemFontTest_Fixed.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
 }

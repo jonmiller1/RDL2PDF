@@ -12,6 +12,8 @@ public class SimplePdfRenderer : IDisposable
     private readonly float _height;
     private readonly Dictionary<string, int> _images = new();
     private readonly List<(string objectData, byte[] streamData)> _imageData = new();
+    private readonly Dictionary<string, int> _fonts = new();
+    private readonly List<(PdfFont font, string objectData, byte[]? fontData)> _fontData = new();
     private bool _disposed = false;
 
     public float DPI { get; set; } = 72f;
@@ -38,6 +40,120 @@ public class SimplePdfRenderer : IDisposable
         var renderer = new SimplePdfRenderer(widthPoints, heightPoints);
         renderer.DPI = dpi;
         return renderer;
+    }
+
+    private int GetOrAddFont(PdfFont font)
+    {
+        var fontKey = $"{font.Name}_{font.Style}";
+        if (!_fonts.ContainsKey(fontKey))
+        {
+            var fontIndex = _fonts.Count + 1;
+            _fonts[fontKey] = fontIndex;
+
+            if (font.IsEmbedded && font.FilePath != null)
+            {
+                // For now, treat embedded fonts as built-in fonts to avoid PDF corruption
+                // TODO: Implement proper TrueType font embedding
+                var fallbackFont = GetFallbackFont(font);
+                var fontObject = CreateBuiltInFontObject(fallbackFont);
+                _fontData.Add((fallbackFont, fontObject, null));
+            }
+            else
+            {
+                // Built-in font
+                var fontObject = CreateBuiltInFontObject(font);
+                _fontData.Add((font, fontObject, null));
+            }
+        }
+        
+        return _fonts[fontKey];
+    }
+
+    private PdfFont GetFallbackFont(PdfFont originalFont)
+    {
+        // Map system fonts to similar built-in PDF fonts
+        var fontName = originalFont.Name.ToLowerInvariant();
+        
+        if (fontName.Contains("arial") || fontName.Contains("helvetica"))
+        {
+            return originalFont.Style switch
+            {
+                PdfFontStyle.Bold => PdfFont.HelveticaBold,
+                PdfFontStyle.Italic => PdfFont.HelveticaOblique,
+                PdfFontStyle.BoldItalic => PdfFont.HelveticaBoldOblique,
+                _ => PdfFont.Helvetica
+            };
+        }
+        else if (fontName.Contains("times"))
+        {
+            return originalFont.Style switch
+            {
+                PdfFontStyle.Bold => PdfFont.TimesBold,
+                PdfFontStyle.Italic => PdfFont.TimesItalic,
+                PdfFontStyle.BoldItalic => PdfFont.TimesBoldItalic,
+                _ => PdfFont.TimesRoman
+            };
+        }
+        else if (fontName.Contains("courier"))
+        {
+            return originalFont.Style switch
+            {
+                PdfFontStyle.Bold => PdfFont.CourierBold,
+                PdfFontStyle.Italic => PdfFont.CourierOblique,
+                PdfFontStyle.BoldItalic => PdfFont.CourierBoldOblique,
+                _ => PdfFont.Courier
+            };
+        }
+        
+        // Default fallback to Helvetica
+        return originalFont.Style switch
+        {
+            PdfFontStyle.Bold => PdfFont.HelveticaBold,
+            PdfFontStyle.Italic => PdfFont.HelveticaOblique,
+            PdfFontStyle.BoldItalic => PdfFont.HelveticaBoldOblique,
+            _ => PdfFont.Helvetica
+        };
+    }
+
+    private string CreateBuiltInFontObject(PdfFont font)
+    {
+        return $@"<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /{font.Name}
+>>";
+    }
+
+    private string CreateEmbeddedFontObject(PdfFont font, byte[] fontBytes)
+    {
+        // For TrueType fonts, we create a more complex font object
+        var fontFileObjectId = 5 + _imageData.Count + _fontData.Count * 2 + 1; // Calculate next available object ID
+        
+        return $@"<<
+/Type /Font
+/Subtype /TrueType
+/BaseFont /{font.Name.Replace(" ", "")}
+/FirstChar 32
+/LastChar 255
+/Widths [250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250 250]
+/FontDescriptor {fontFileObjectId + 1} 0 R
+>>";
+    }
+
+    private string CreateFontDescriptor(PdfFont font, int fontFileObjectId)
+    {
+        return $@"<<
+/Type /FontDescriptor
+/FontName /{font.Name.Replace(" ", "")}
+/FontFile2 {fontFileObjectId} 0 R
+/FontBBox [-100 -200 1000 800]
+/ItalicAngle 0
+/Ascent 800
+/Descent -200
+/CapHeight 700
+/XHeight 500
+/StemV 80
+>>";
     }
 
     public float InchesToPoints(float inches) => inches * DPI;
@@ -76,9 +192,13 @@ public class SimplePdfRenderer : IDisposable
         DrawLine(PixelsToPoints(x1), PixelsToPoints(y1), PixelsToPoints(x2), PixelsToPoints(y2), lineWidth, color);
     }
 
-    public void DrawText(string text, float x, float y, float fontSize = 12f, PdfColor? color = null)
+    public void DrawText(string text, float x, float y, float fontSize = 12f, PdfColor? color = null, PdfFont? font = null)
     {
         if (string.IsNullOrEmpty(text)) return;
+        
+        // Use Helvetica as default font if none specified
+        font ??= PdfFont.Helvetica;
+        var fontIndex = GetOrAddFont(font);
         
         var pdfY = ConvertY(y);
         
@@ -89,20 +209,20 @@ public class SimplePdfRenderer : IDisposable
             _content.AppendLine($"{color.R:F3} {color.G:F3} {color.B:F3} rg");
         }
         
-        _content.AppendLine($"/F1 {fontSize:F2} Tf");
+        _content.AppendLine($"/F{fontIndex} {fontSize:F2} Tf");
         _content.AppendLine($"{x:F2} {pdfY:F2} Td");
         _content.AppendLine($"({EscapeText(text)}) Tj");
         _content.AppendLine("ET");
     }
 
-    public void DrawTextInches(string text, float x, float y, float fontSize = 12f, PdfColor? color = null)
+    public void DrawTextInches(string text, float x, float y, float fontSize = 12f, PdfColor? color = null, PdfFont? font = null)
     {
-        DrawText(text, InchesToPoints(x), InchesToPoints(y), fontSize, color);
+        DrawText(text, InchesToPoints(x), InchesToPoints(y), fontSize, color, font);
     }
 
-    public void DrawTextPixels(string text, float x, float y, float fontSize = 12f, PdfColor? color = null)
+    public void DrawTextPixels(string text, float x, float y, float fontSize = 12f, PdfColor? color = null, PdfFont? font = null)
     {
-        DrawText(text, PixelsToPoints(x), PixelsToPoints(y), fontSize, color);
+        DrawText(text, PixelsToPoints(x), PixelsToPoints(y), fontSize, color, font);
     }
 
     public void DrawImage(string imagePath, float x, float y, float width, float height)
@@ -201,7 +321,19 @@ public class SimplePdfRenderer : IDisposable
         positions.Add(pdfStream.Length);
         WriteText(writer, "3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n");
         WriteText(writer, $"/MediaBox [0 0 {_width.ToString(CultureInfo.InvariantCulture)} {_height.ToString(CultureInfo.InvariantCulture)}]\n");
-        WriteText(writer, "/Resources <<\n  /Font << /F1 4 0 R >>\n");
+        WriteText(writer, "/Resources <<\n  /Font <<");
+        
+        // Add font resources - ensure we have at least the default Helvetica
+        if (_fonts.Count == 0)
+        {
+            GetOrAddFont(PdfFont.Helvetica);
+        }
+        
+        for (int i = 1; i <= _fonts.Count; i++)
+        {
+            WriteText(writer, $" /F{i} {3 + i} 0 R");
+        }
+        WriteText(writer, " >>\n");
         
         // Add image resources if any
         if (_images.Count > 0)
@@ -209,28 +341,37 @@ public class SimplePdfRenderer : IDisposable
             WriteText(writer, "  /XObject <<");
             for (int i = 1; i <= _images.Count; i++)
             {
-                WriteText(writer, $" /Im{i} {5 + i} 0 R");
+                var imageObjectId = 4 + _fonts.Count + i;
+                WriteText(writer, $" /Im{i} {imageObjectId} 0 R");
             }
             WriteText(writer, " >>\n");
         }
         
-        WriteText(writer, ">>\n/Contents 5 0 R\n>>\nendobj\n");
+        var contentObjectId = 4 + _fonts.Count;
+        WriteText(writer, $">>\n/Contents {contentObjectId} 0 R\n>>\nendobj\n");
         
-        // Object 4: Font
-        positions.Add(pdfStream.Length);
-        WriteText(writer, "4 0 obj\n<<\n/Type /Font\n/Subtype /Type1\n/BaseFont /Helvetica\n>>\nendobj\n");
+        // Font objects (starting from object 4) - all built-in fonts now
+        for (int i = 0; i < _fontData.Count; i++)
+        {
+            var fontObjectId = 4 + i;
+            positions.Add(pdfStream.Length);
+            WriteText(writer, $"{fontObjectId} 0 obj\n");
+            WriteText(writer, _fontData[i].objectData);
+            WriteText(writer, "\nendobj\n");
+        }
         
-        // Object 5: Content Stream
+        // Content Stream
         positions.Add(pdfStream.Length);
-        WriteText(writer, $"5 0 obj\n<<\n/Length {contentBytes.Length}\n>>\nstream\n");
+        WriteText(writer, $"{contentObjectId} 0 obj\n<<\n/Length {contentBytes.Length}\n>>\nstream\n");
         writer.Write(contentBytes);
         WriteText(writer, "endstream\nendobj\n");
         
-        // Image objects (starting from object 6)
+        // Image objects
         for (int i = 0; i < _imageData.Count; i++)
         {
+            var imageObjectId = contentObjectId + 1 + i;
             positions.Add(pdfStream.Length);
-            WriteText(writer, $"{6 + i} 0 obj\n");
+            WriteText(writer, $"{imageObjectId} 0 obj\n");
             WriteText(writer, _imageData[i].objectData);
             WriteText(writer, "\nstream\n");
             writer.Write(_imageData[i].streamData);
@@ -239,7 +380,7 @@ public class SimplePdfRenderer : IDisposable
         
         // Cross-reference table
         var xrefPos = pdfStream.Length;
-        var totalObjects = 5 + _imageData.Count + 1;
+        var totalObjects = 3 + _fontData.Count + 1 + _imageData.Count + 1; // catalog + pages + page + fonts + content + images + 1 for 0-index
         WriteText(writer, $"xref\n0 {totalObjects}\n0000000000 65535 f \n");
         
         foreach (var pos in positions)
