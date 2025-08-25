@@ -225,6 +225,98 @@ public class SimplePdfRenderer : IDisposable
         DrawText(text, PixelsToPoints(x), PixelsToPoints(y), fontSize, color, font);
     }
 
+    public void DrawRectangle(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    {
+        var pdfY = ConvertY(y + height); // Convert to PDF coordinates and adjust for rectangle height
+        
+        _content.AppendLine("q"); // Save graphics state
+        
+        // Set stroke color if provided
+        if (strokeColor != null)
+        {
+            _content.AppendLine($"{strokeColor.R:F3} {strokeColor.G:F3} {strokeColor.B:F3} RG");
+            _content.AppendLine($"{lineWidth:F2} w");
+        }
+        
+        // Set fill color if provided
+        if (fillColor != null)
+        {
+            _content.AppendLine($"{fillColor.R:F3} {fillColor.G:F3} {fillColor.B:F3} rg");
+        }
+        
+        // Draw rectangle
+        _content.AppendLine($"{x:F2} {pdfY:F2} {width:F2} {height:F2} re");
+        
+        // Choose drawing operation based on what's specified
+        if (fillColor != null && strokeColor != null)
+            _content.AppendLine("B"); // Fill and stroke
+        else if (fillColor != null)
+            _content.AppendLine("f"); // Fill only
+        else
+            _content.AppendLine("S"); // Stroke only (default)
+            
+        _content.AppendLine("Q"); // Restore graphics state
+    }
+
+    public void DrawRectangleInches(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    {
+        DrawRectangle(InchesToPoints(x), InchesToPoints(y), InchesToPoints(width), InchesToPoints(height), lineWidth, strokeColor, fillColor);
+    }
+
+    public void DrawRectanglePixels(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    {
+        DrawRectangle(PixelsToPoints(x), PixelsToPoints(y), PixelsToPoints(width), PixelsToPoints(height), lineWidth, strokeColor, fillColor);
+    }
+
+    public void DrawCircle(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    {
+        var pdfY = ConvertY(centerY); // Convert center Y to PDF coordinates
+        
+        _content.AppendLine("q"); // Save graphics state
+        
+        // Set stroke color if provided
+        if (strokeColor != null)
+        {
+            _content.AppendLine($"{strokeColor.R:F3} {strokeColor.G:F3} {strokeColor.B:F3} RG");
+            _content.AppendLine($"{lineWidth:F2} w");
+        }
+        
+        // Set fill color if provided
+        if (fillColor != null)
+        {
+            _content.AppendLine($"{fillColor.R:F3} {fillColor.G:F3} {fillColor.B:F3} rg");
+        }
+        
+        // Draw circle using Bézier curves (4 curves for a complete circle)
+        var k = 0.5522847498f * radius; // Magic number for circle approximation
+        
+        _content.AppendLine($"{centerX:F2} {pdfY + radius:F2} m"); // Move to top
+        _content.AppendLine($"{centerX + k:F2} {pdfY + radius:F2} {centerX + radius:F2} {pdfY + k:F2} {centerX + radius:F2} {pdfY:F2} c"); // Top-right curve
+        _content.AppendLine($"{centerX + radius:F2} {pdfY - k:F2} {centerX + k:F2} {pdfY - radius:F2} {centerX:F2} {pdfY - radius:F2} c"); // Bottom-right curve
+        _content.AppendLine($"{centerX - k:F2} {pdfY - radius:F2} {centerX - radius:F2} {pdfY - k:F2} {centerX - radius:F2} {pdfY:F2} c"); // Bottom-left curve
+        _content.AppendLine($"{centerX - radius:F2} {pdfY + k:F2} {centerX - k:F2} {pdfY + radius:F2} {centerX:F2} {pdfY + radius:F2} c"); // Top-left curve
+        
+        // Choose drawing operation
+        if (fillColor != null && strokeColor != null)
+            _content.AppendLine("B"); // Fill and stroke
+        else if (fillColor != null)
+            _content.AppendLine("f"); // Fill only
+        else
+            _content.AppendLine("S"); // Stroke only
+            
+        _content.AppendLine("Q"); // Restore graphics state
+    }
+
+    public void DrawCircleInches(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    {
+        DrawCircle(InchesToPoints(centerX), InchesToPoints(centerY), InchesToPoints(radius), lineWidth, strokeColor, fillColor);
+    }
+
+    public void DrawCirclePixels(float centerX, float centerY, float radius, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null)
+    {
+        DrawCircle(PixelsToPoints(centerX), PixelsToPoints(centerY), PixelsToPoints(radius), lineWidth, strokeColor, fillColor);
+    }
+
     public void DrawImage(string imagePath, float x, float y, float width, float height)
     {
         if (!File.Exists(imagePath))

@@ -274,4 +274,83 @@ public class SimplePdfTest
         Assert.NotNull(pdfBytes);
         Assert.True(pdfBytes.Length > 0);
     }
+
+    [Fact]
+    public void CanDrawShapesAndFills()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Title
+        renderer.DrawTextInches("Shape and Fill Pattern Test", 1f, 0.5f, 18f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Rectangle examples
+        renderer.DrawTextInches("Rectangles:", 0.5f, 1.2f, 14f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Stroke only rectangle
+        renderer.DrawRectangleInches(0.5f, 1.5f, 1.5f, 1f, 2f, PdfColor.Red);
+        renderer.DrawTextInches("Stroke Only", 0.5f, 2.7f, 10f, PdfColor.Red);
+        
+        // Fill only rectangle  
+        renderer.DrawRectangleInches(2.5f, 1.5f, 1.5f, 1f, fillColor: PdfColor.Blue);
+        renderer.DrawTextInches("Fill Only", 2.5f, 2.7f, 10f, PdfColor.Blue);
+        
+        // Fill and stroke rectangle
+        renderer.DrawRectangleInches(4.5f, 1.5f, 1.5f, 1f, 3f, PdfColor.Green, new PdfColor(0.8f, 1f, 0.8f));
+        renderer.DrawTextInches("Fill + Stroke", 4.5f, 2.7f, 10f, PdfColor.Green);
+        
+        // Different fill colors
+        renderer.DrawRectangleInches(6.5f, 1.5f, 1.5f, 1f, 1f, PdfColor.Black, PdfColor.Yellow);
+        renderer.DrawTextInches("Yellow Fill", 6.5f, 2.7f, 10f, PdfColor.Black);
+        
+        // Circle examples
+        renderer.DrawTextInches("Circles:", 0.5f, 3.5f, 14f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Stroke only circle
+        renderer.DrawCircleInches(1.25f, 4.5f, 0.5f, 2f, PdfColor.Magenta);
+        renderer.DrawTextInches("Stroke Only", 0.75f, 5.2f, 10f, PdfColor.Magenta);
+        
+        // Fill only circle
+        renderer.DrawCircleInches(3.25f, 4.5f, 0.5f, fillColor: new PdfColor(1f, 0.5f, 0f)); // Orange
+        renderer.DrawTextInches("Fill Only", 2.75f, 5.2f, 10f, new PdfColor(1f, 0.5f, 0f));
+        
+        // Fill and stroke circle
+        renderer.DrawCircleInches(5.25f, 4.5f, 0.5f, 2f, PdfColor.Black, PdfColor.Cyan);
+        renderer.DrawTextInches("Fill + Stroke", 4.75f, 5.2f, 10f, PdfColor.Black);
+        
+        // Small circles
+        renderer.DrawCircleInches(7.25f, 4.5f, 0.25f, 1f, PdfColor.Red, PdfColor.White);
+        renderer.DrawTextInches("Small Circle", 6.75f, 5.2f, 10f, PdfColor.Red);
+        
+        // Using pixel coordinates for precision
+        renderer.DrawTextInches("Pixel-based Shapes:", 0.5f, 6f, 14f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Small rectangles using pixel coordinates
+        for (int i = 0; i < 5; i++)
+        {
+            var color = i switch
+            {
+                0 => PdfColor.Red,
+                1 => new PdfColor(1f, 0.5f, 0f), // Orange
+                2 => PdfColor.Yellow,
+                3 => PdfColor.Green,
+                4 => PdfColor.Blue,
+                _ => PdfColor.Black
+            };
+            renderer.DrawRectanglePixels(150 + i * 60, 2040, 50, 80, 1f, PdfColor.Black, color);
+        }
+        renderer.DrawTextInches("Color gradient using pixels", 0.5f, 7.2f, 10f, PdfColor.Black);
+        
+        // Overlapping shapes for layering test
+        renderer.DrawTextInches("Layered Shapes:", 0.5f, 7.8f, 14f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        renderer.DrawRectangleInches(1f, 8.2f, 1f, 0.8f, fillColor: PdfColor.Red);
+        renderer.DrawCircleInches(1.7f, 8.6f, 0.4f, fillColor: PdfColor.Blue);
+        renderer.DrawTextInches("Overlapping", 0.8f, 9.3f, 10f, PdfColor.Black);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\ShapesTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
 }
