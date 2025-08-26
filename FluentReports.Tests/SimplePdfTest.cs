@@ -893,4 +893,217 @@ public class SimplePdfTest
         Assert.NotNull(pdfBytes);
         Assert.True(pdfBytes.Length > 0);
     }
+
+    [Fact]
+    public void CanDrawTextBoxes()
+    {
+        using var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f, 300f);
+        
+        // Title
+        renderer.DrawTextInches("Text Boxes with Automatic Sizing Test", 0.5f, 0.5f, 0.2f, PdfColor.Black, PdfFont.HelveticaBold);
+        
+        // Test fixed size text box with background and border
+        var fixedBox = new TextBox(0.5f, 1f, 3f, 1f)
+        {
+            Sizing = TextBoxSizing.Fixed,
+            BackgroundColor = PdfColor.LightGray,
+            BorderColor = PdfColor.Black,
+            BorderWidth = 1f,
+            Padding = 0.1f,
+            Alignment = TextAlignment.Center
+        };
+        
+        var result1 = renderer.DrawTextBoxInches(fixedBox, "Fixed Size Text Box (3\" x 1\")", 0.12f, PdfColor.Black);
+        
+        // Test auto-width text box
+        var autoWidthBox = new TextBox(4f, 1f, 1f, 1f) // Start with small width
+        {
+            Sizing = TextBoxSizing.AutoWidth,
+            BackgroundColor = new PdfColor(1f, 1f, 0.8f), // Light yellow
+            BorderColor = PdfColor.Blue,
+            BorderWidth = 1f,
+            Padding = 0.1f,
+            MinWidth = 1f,
+            MaxWidth = 4f
+        };
+        
+        var result2 = renderer.DrawTextBoxInches(autoWidthBox, "Auto Width Text Box", 0.12f, PdfColor.Black);
+        renderer.DrawTextInches($"Actual width: {result2.Width:F2}\"", 4f, 2.2f, 0.1f, PdfColor.Blue);
+        
+        // Test auto-height text box with wrapping
+        var autoHeightBox = new TextBox(0.5f, 3f, 3f, 0.5f) // Start with small height
+        {
+            Sizing = TextBoxSizing.AutoHeight,
+            Overflow = TextBoxOverflow.Wrap,
+            BackgroundColor = new PdfColor(0.8f, 1f, 0.8f), // Light green
+            BorderColor = PdfColor.Green,
+            BorderWidth = 1f,
+            Padding = 0.1f,
+            MinHeight = 0.5f,
+            MaxHeight = 3f
+        };
+        
+        var longText = "This is a long text that should wrap to multiple lines and cause the text box to expand its height automatically to fit all the content properly.";
+        var result3 = renderer.DrawTextBoxInches(autoHeightBox, longText, 0.11f, PdfColor.Black);
+        renderer.DrawTextInches($"Actual height: {result3.Height:F2}\"", 0.5f, result3.Y + result3.Height + 0.2f, 0.1f, PdfColor.Green);
+        
+        // Test auto-both (width and height)
+        var autoBothBox = new TextBox(4f, 3f, 1f, 0.5f) // Start with small dimensions
+        {
+            Sizing = TextBoxSizing.AutoBoth,
+            Overflow = TextBoxOverflow.Wrap,
+            BackgroundColor = new PdfColor(1f, 0.8f, 0.8f), // Light red
+            BorderColor = PdfColor.Red,
+            BorderWidth = 1f,
+            Padding = 0.05f,  // Reduced padding for better auto-sizing demonstration
+            MinWidth = 1f,
+            MaxWidth = 3f,
+            MinHeight = 0.2f,
+            MaxHeight = 2f
+        };
+        
+        var result4 = renderer.DrawTextBoxInches(autoBothBox, "Auto Both Dimensions", 0.12f, PdfColor.Black);
+        renderer.DrawTextInches($"Size: {result4.Width:F2}\" x {result4.Height:F2}\"", 4f, result4.Y + result4.Height + 0.2f, 0.1f, PdfColor.Red);
+        
+        // Test text box with different alignments
+        var y = 6.5f;
+        var alignmentBoxes = new[] { TextAlignment.Left, TextAlignment.Center, TextAlignment.Right };
+        var colors = new[] { PdfColor.Blue, PdfColor.Green, PdfColor.Red };
+        
+        for (int i = 0; i < alignmentBoxes.Length; i++)
+        {
+            var alignBox = new TextBox(0.5f + i * 2.5f, y, 2f, 0.8f)
+            {
+                Sizing = TextBoxSizing.Fixed,
+                BackgroundColor = new PdfColor(0.9f, 0.9f, 1f), // Light blue
+                BorderColor = colors[i],
+                BorderWidth = 1f,
+                Padding = 0.1f,
+                Alignment = alignmentBoxes[i]
+            };
+            
+            renderer.DrawTextBoxInches(alignBox, $"{alignmentBoxes[i]} Aligned", 0.12f, colors[i]);
+        }
+        
+        // Test clipping overflow
+        var clipBox = new TextBox(0.5f, 8f, 2f, 0.6f)
+        {
+            Sizing = TextBoxSizing.Fixed,
+            Overflow = TextBoxOverflow.Clip,
+            BackgroundColor = new PdfColor(1f, 0.9f, 0.9f), // Light pink
+            BorderColor = PdfColor.Magenta,
+            BorderWidth = 1f,
+            Padding = 0.05f
+        };
+        
+        renderer.DrawTextBoxInches(clipBox, "This text is too long for the box and should be clipped", 0.11f, PdfColor.Magenta);
+        
+        // Add note explaining the clipped text behavior
+        renderer.DrawTextInches("^ Text clipping test - partial text visible at end is expected behavior", 0.5f, 8.8f, 0.08f, PdfColor.Gray);
+        
+        // Test with different padding
+        var paddingBox = new TextBox(3f, 8f, 2f, 1.2f)
+        {
+            Sizing = TextBoxSizing.Fixed,
+            BackgroundColor = PdfColor.Yellow,
+            BorderColor = PdfColor.Black,
+            BorderWidth = 1f,
+            PaddingLeft = 0.2f,
+            PaddingRight = 0.1f,
+            PaddingTop = 0.15f,
+            PaddingBottom = 0.05f
+        };
+        
+        renderer.DrawTextBoxInches(paddingBox, "Different padding on each side", 0.11f, PdfColor.Black);
+        
+        // Test Rich Text Box
+        var richTextBox = new TextBox(5.5f, 8f, 2.5f, 1.5f)
+        {
+            Sizing = TextBoxSizing.Fixed,
+            BackgroundColor = new PdfColor(0.95f, 0.95f, 1f),
+            BorderColor = PdfColor.DarkGray,
+            BorderWidth = 1f,
+            Padding = 0.1f
+        };
+        
+        var richContent = new RichText()
+            .AddBold("Rich Text ")
+            .AddText("with ")
+            .AddItalic("formatting", PdfColor.Blue)
+            .AddText(" in ")
+            .AddUnderlined("text box");
+        
+        renderer.DrawRichTextBoxInches(richTextBox, richContent, 0.12f);
+        
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\TextBoxTest.pdf", pdfBytes);
+        
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+        
+        // Verify that auto-sizing worked
+        Assert.True(result2.Width > autoWidthBox.Width); // Auto-width should have expanded
+        Assert.True(result3.Height > autoHeightBox.Height); // Auto-height should have expanded  
+        Assert.True(result4.Width > autoBothBox.Width || result4.Height > autoBothBox.Height); // Auto-both should have expanded
+    }
+
+    [Fact]
+    public void DebugTextBoxAlignment()
+    {
+        var renderer = SimplePdfRenderer.CreateFromInches(8.5f, 11f);
+
+        // Debug color values
+        var red = PdfColor.Red;
+        var green = PdfColor.Green; 
+        var blue = PdfColor.Blue;
+        renderer.DrawTextInches($"Red: R={red.R:F3} G={red.G:F3} B={red.B:F3}", 0.5f, 0.5f, 0.1f, PdfColor.Black);
+        renderer.DrawTextInches($"Green: R={green.R:F3} G={green.G:F3} B={green.B:F3}", 0.5f, 0.7f, 0.1f, PdfColor.Black);
+        renderer.DrawTextInches($"Blue: R={blue.R:F3} G={blue.G:F3} B={blue.B:F3}", 0.5f, 0.9f, 0.1f, PdfColor.Black);
+
+        // Simple color test first
+        renderer.DrawRectangleInches(1f, 1f, 1f, 1f, 2f, red, null);
+        renderer.DrawRectangleInches(3f, 1f, 1f, 1f, 2f, green, null);  
+        renderer.DrawRectangleInches(5f, 1f, 1f, 1f, 2f, blue, null);
+        
+        // Test line colors
+        renderer.DrawLineInches(1f, 3f, 6f, 3f, 3f, PdfColor.Red);
+        renderer.DrawLineInches(1f, 3.5f, 6f, 3.5f, 3f, PdfColor.Green);
+        renderer.DrawLineInches(1f, 4f, 6f, 4f, 3f, PdfColor.Blue);
+        
+        // Test text colors
+        renderer.DrawTextInches("RED TEXT", 1f, 5f, 0.2f, PdfColor.Red);
+        renderer.DrawTextInches("GREEN TEXT", 3f, 5f, 0.2f, PdfColor.Green);
+        renderer.DrawTextInches("BLUE TEXT", 5f, 5f, 0.2f, PdfColor.Blue);
+        
+        // Test black text for comparison
+        renderer.DrawTextInches("BLACK TEXT", 1f, 6f, 0.2f, PdfColor.Black);
+        
+        // Now test alignment with simple black elements
+        var boxX = 1f;
+        var boxY = 7f;
+        var boxWidth = 4f;
+        var boxHeight = 1f;
+        
+        // Draw box outline (black)
+        renderer.DrawRectangleInches(boxX, boxY, boxWidth, boxHeight, 1f, PdfColor.Black, null);
+        
+        // Calculate center point
+        var centerX = boxX + boxWidth / 2;
+        
+        // Draw center line (black)
+        renderer.DrawLineInches(centerX, boxY - 0.1f, centerX, boxY + boxHeight + 0.1f, 1f, PdfColor.Black);
+        
+        // Test text alignment at center point
+        renderer.DrawTextInches("CENTER", centerX, boxY + 0.2f, 0.15f, PdfColor.Black, null, TextAlignment.Center);
+        renderer.DrawTextInches("LEFT", centerX, boxY + 0.5f, 0.15f, PdfColor.Black, null, TextAlignment.Left);
+        renderer.DrawTextInches("RIGHT", centerX, boxY + 0.8f, 0.15f, PdfColor.Black, null, TextAlignment.Right);
+
+        // Save the PDF
+        var pdfBytes = renderer.ToByteArray();
+        File.WriteAllBytes(@"c:\output\DebugAlignment.pdf", pdfBytes);
+
+        Assert.NotNull(pdfBytes);
+        Assert.True(pdfBytes.Length > 0);
+    }
+
 }

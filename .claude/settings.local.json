@@ -30,13 +30,18 @@
       "Read(/C:\\output/**)",
       "WebSearch",
       "WebFetch(domain:stackoverflow.com)",
-      "WebFetch(domain:www.asppdf.com)"
+      "WebFetch(domain:www.asppdf.com)",
+      "Read(/c:\\output/**)",
+      "Bash(start \"\" \"c:\\output\\TextBoxTest.pdf\")",
+      "Bash(start \"\" \"c:\\output\\DebugAlignment.pdf\")",
+      "Read(/C:\\output/**)"
     ],
     "deny": [],
     "ask": [],
     "additionalDirectories": [
       "c:\\code\\RDL2PDF",
-      "C:\\c"
+      "C:\\c",
+      "c:\\output"
     ]
   }
 }

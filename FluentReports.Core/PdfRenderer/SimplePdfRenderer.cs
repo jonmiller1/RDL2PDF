@@ -26,10 +26,10 @@ public class SimplePdfRenderer : IDisposable
 
     public static SimplePdfRenderer CreateFromInches(float widthInches, float heightInches, float dpi = 72f)
     {
-        var widthPoints = widthInches * dpi;
-        var heightPoints = heightInches * dpi;
+        var widthPoints = widthInches * 72f;  // PDF pages are always 72 points per inch
+        var heightPoints = heightInches * 72f;
         var renderer = new SimplePdfRenderer(widthPoints, heightPoints);
-        renderer.DPI = dpi;
+        renderer.DPI = dpi;  // Store DPI only for pixel conversion methods
         return renderer;
     }
 
@@ -156,8 +156,8 @@ public class SimplePdfRenderer : IDisposable
 >>";
     }
 
-    public float InchesToPoints(float inches) => inches * DPI;
-    public float PointsToInches(float points) => points / DPI;
+    public float InchesToPoints(float inches) => inches * 72f;
+    public float PointsToInches(float points) => points / 72f;
     public float PixelsToPoints(float pixels) => pixels * 72f / DPI;
     public float PointsToPixels(float points) => points * DPI / 72f;
 
@@ -456,6 +456,84 @@ public class SimplePdfRenderer : IDisposable
         float lineSpacing = 1.2f)
     {
         return DrawMultiLineText(text, x, y, maxWidthPoints, fontSizePoints, color, font, alignment, lineSpacing);
+    }
+
+    private float DrawTextBoxMultiLineText(string text, float x, float y, float maxWidth, float fontSize = 12f, 
+        PdfColor? color = null, PdfFont? font = null, TextAlignment alignment = TextAlignment.Left, 
+        float lineSpacing = 1.2f)
+    {
+        if (string.IsNullOrEmpty(text)) return 0f;
+
+        var lines = WrapText(text, maxWidth, fontSize, font);
+        var lineHeight = fontSize * lineSpacing;
+        // Adjust Y position to account for font baseline - use smaller adjustment for small content areas
+        var baselineAdjustment = fontSize * 0.7f; // Reduced from 0.8f to work better with small boxes
+        var currentY = y + baselineAdjustment;
+        var actualFont = font ?? PdfFont.Helvetica;
+
+        foreach (var line in lines)
+        {
+            // Calculate proper positioning for each line based on alignment
+            var lineWidth = EstimateTextWidthForFont(line, fontSize, actualFont);
+            var lineX = alignment switch
+            {
+                TextAlignment.Center => x + (maxWidth - lineWidth) / 2,  // Center within available width
+                TextAlignment.Right => x + (maxWidth - lineWidth),      // Right-align within available width
+                _ => x // Left edge
+            };
+            
+            // Use left alignment since lineX is already positioned correctly
+            DrawText(line, lineX, currentY, fontSize, color, font, TextAlignment.Left);
+            currentY += lineHeight;
+        }
+
+        return (lines.Count - 1) * lineHeight;
+    }
+
+    private float DrawTextBoxMultiLineRichText(RichText richText, float x, float y, float maxWidth, float fontSize = 12f,
+        TextAlignment alignment = TextAlignment.Left, float lineSpacing = 1.2f)
+    {
+        if (richText.Segments.Count == 0) return 0f;
+
+        // Convert rich text to wrapped lines preserving formatting
+        var wrappedLines = WrapRichText(richText, maxWidth, fontSize);
+        var lineHeight = fontSize * lineSpacing;
+        var currentY = y;
+
+        foreach (var line in wrappedLines)
+        {
+            // Calculate line width for proper alignment
+            var lineWidth = CalculateRichTextWidth(line, fontSize);
+            var lineX = alignment switch
+            {
+                TextAlignment.Center => x + (maxWidth - lineWidth) / 2,  // Center within available width
+                TextAlignment.Right => x + (maxWidth - lineWidth),      // Right-align within available width
+                _ => x // Left edge
+            };
+            
+            // Use left alignment for DrawRichText since lineX is already positioned correctly
+            DrawTextBoxRichText(line, lineX, currentY, fontSize);
+            currentY += lineHeight;
+        }
+
+        return (wrappedLines.Count - 1) * lineHeight;
+    }
+
+    private void DrawTextBoxRichText(RichText richText, float x, float y, float fontSize = 12f)
+    {
+        if (richText.Segments.Count == 0) return;
+
+        var currentX = x; // Start at the specified position (already calculated for alignment)
+
+        foreach (var segment in richText.Segments)
+        {
+            var font = segment.Font ?? PdfFont.Helvetica;
+            DrawText(segment.Text, currentX, y, fontSize, segment.Color, font, TextAlignment.Left);
+            
+            // Move X position for next segment
+            var segmentWidth = EstimateTextWidthForFont(segment.Text, fontSize, font);
+            currentX += segmentWidth;
+        }
     }
 
     private List<string> WrapText(string text, float maxWidth, float fontSize, PdfFont? font)
@@ -757,6 +835,373 @@ public class SimplePdfRenderer : IDisposable
         }
 
         return lines.Count == 0 ? new List<RichText> { new RichText() } : lines;
+    }
+
+    public TextBox DrawTextBox(TextBox textBox, string text, float fontSize = 12f, PdfColor? textColor = null, PdfFont? font = null)
+    {
+        // Create a copy to avoid modifying the original
+        var box = new TextBox(textBox.X, textBox.Y, textBox.Width, textBox.Height)
+        {
+            MinWidth = textBox.MinWidth,
+            MaxWidth = textBox.MaxWidth,
+            MinHeight = textBox.MinHeight,
+            MaxHeight = textBox.MaxHeight,
+            Padding = textBox.Padding,
+            PaddingLeft = textBox.PaddingLeft,
+            PaddingRight = textBox.PaddingRight,
+            PaddingTop = textBox.PaddingTop,
+            PaddingBottom = textBox.PaddingBottom,
+            Sizing = textBox.Sizing,
+            Overflow = textBox.Overflow,
+            Alignment = textBox.Alignment,
+            LineSpacing = textBox.LineSpacing,
+            BackgroundColor = textBox.BackgroundColor,
+            BorderColor = textBox.BorderColor,
+            BorderWidth = textBox.BorderWidth,
+            BorderStyle = textBox.BorderStyle
+        };
+
+        // Calculate required dimensions based on sizing mode
+        CalculateTextBoxDimensions(box, text, fontSize, font);
+
+        // Draw background if specified
+        if (box.BackgroundColor != null)
+        {
+            DrawRectangle(box.X, box.Y, box.Width, box.Height, 0f, null, box.BackgroundColor);
+        }
+
+        // Draw border if specified
+        if (box.BorderColor != null)
+        {
+            DrawRectangle(box.X, box.Y, box.Width, box.Height, box.BorderWidth, box.BorderColor, null, box.BorderStyle);
+        }
+
+        // Draw text content
+        var contentX = box.GetContentX();
+        var contentY = box.GetContentY();
+        var contentWidth = box.GetContentWidth();
+        var contentHeight = box.GetContentHeight();
+
+        if (box.Overflow == TextBoxOverflow.Clip)
+        {
+            // Use clipping to ensure text doesn't exceed bounds
+            SetRectangularClip(contentX, contentY, contentWidth, contentHeight);
+        }
+
+        if (box.Overflow == TextBoxOverflow.Wrap || box.Sizing == TextBoxSizing.AutoHeight || box.Sizing == TextBoxSizing.AutoBoth)
+        {
+            
+            // Handle multi-line text with proper text box alignment
+            DrawTextBoxMultiLineText(text, contentX, contentY, contentWidth, fontSize, textColor, font, box.Alignment, box.LineSpacing);
+        }
+        else
+        {
+            
+            // Calculate text width and position it correctly within the content area
+            var actualFont = font ?? PdfFont.Helvetica;
+            var textWidth = EstimateTextWidthForFont(text, fontSize, actualFont);
+            var textX = box.Alignment switch
+            {
+                TextAlignment.Center => contentX + (contentWidth - textWidth) / 2,  // Center the text within content area
+                TextAlignment.Right => contentX + (contentWidth - textWidth),      // Right-align within content area  
+                _ => contentX // Left edge of content area
+            };
+            
+            // Use left alignment since textX is already positioned correctly
+            DrawText(text, textX, contentY + fontSize * 0.7f, fontSize, textColor, font, TextAlignment.Left);
+        }
+
+        if (box.Overflow == TextBoxOverflow.Clip)
+        {
+            RestoreGraphicsState();
+        }
+
+        return box;
+    }
+
+    public TextBox DrawTextBoxInches(TextBox textBox, string text, float fontSizeInches = 0.167f, PdfColor? textColor = null, PdfFont? font = null)
+    {
+        // Convert textBox coordinates to points
+        var textBoxPoints = new TextBox(
+            InchesToPoints(textBox.X), 
+            InchesToPoints(textBox.Y), 
+            InchesToPoints(textBox.Width), 
+            InchesToPoints(textBox.Height))
+        {
+            MinWidth = InchesToPoints(textBox.MinWidth),
+            MaxWidth = textBox.MaxWidth == float.MaxValue ? float.MaxValue : InchesToPoints(textBox.MaxWidth),
+            MinHeight = InchesToPoints(textBox.MinHeight),
+            MaxHeight = textBox.MaxHeight == float.MaxValue ? float.MaxValue : InchesToPoints(textBox.MaxHeight),
+            Padding = InchesToPoints(textBox.Padding),
+            PaddingLeft = InchesToPoints(textBox.PaddingLeft),
+            PaddingRight = InchesToPoints(textBox.PaddingRight),
+            PaddingTop = InchesToPoints(textBox.PaddingTop),
+            PaddingBottom = InchesToPoints(textBox.PaddingBottom),
+            Sizing = textBox.Sizing,
+            Overflow = textBox.Overflow,
+            Alignment = textBox.Alignment,
+            LineSpacing = textBox.LineSpacing,
+            BackgroundColor = textBox.BackgroundColor,
+            BorderColor = textBox.BorderColor,
+            BorderWidth = textBox.BorderWidth,
+            BorderStyle = textBox.BorderStyle
+        };
+
+        var result = DrawTextBox(textBoxPoints, text, InchesToPoints(fontSizeInches), textColor, font);
+        
+        // Convert result back to inches
+        result.X = PointsToInches(result.X);
+        result.Y = PointsToInches(result.Y);
+        result.Width = PointsToInches(result.Width);
+        result.Height = PointsToInches(result.Height);
+        result.MinWidth = PointsToInches(result.MinWidth);
+        result.MaxWidth = result.MaxWidth == float.MaxValue ? float.MaxValue : PointsToInches(result.MaxWidth);
+        result.MinHeight = PointsToInches(result.MinHeight);
+        result.MaxHeight = result.MaxHeight == float.MaxValue ? float.MaxValue : PointsToInches(result.MaxHeight);
+        result.Padding = PointsToInches(result.Padding);
+        result.PaddingLeft = PointsToInches(result.PaddingLeft);
+        result.PaddingRight = PointsToInches(result.PaddingRight);
+        result.PaddingTop = PointsToInches(result.PaddingTop);
+        result.PaddingBottom = PointsToInches(result.PaddingBottom);
+        
+        return result;
+    }
+
+    public TextBox DrawTextBoxPixels(TextBox textBox, string text, float fontSizePixels = 16f, PdfColor? textColor = null, PdfFont? font = null)
+    {
+        // Convert textBox coordinates to points
+        var textBoxPoints = new TextBox(
+            PixelsToPoints(textBox.X), 
+            PixelsToPoints(textBox.Y), 
+            PixelsToPoints(textBox.Width), 
+            PixelsToPoints(textBox.Height))
+        {
+            MinWidth = PixelsToPoints(textBox.MinWidth),
+            MaxWidth = textBox.MaxWidth == float.MaxValue ? float.MaxValue : PixelsToPoints(textBox.MaxWidth),
+            MinHeight = PixelsToPoints(textBox.MinHeight),
+            MaxHeight = textBox.MaxHeight == float.MaxValue ? float.MaxValue : PixelsToPoints(textBox.MaxHeight),
+            Padding = PixelsToPoints(textBox.Padding),
+            PaddingLeft = PixelsToPoints(textBox.PaddingLeft),
+            PaddingRight = PixelsToPoints(textBox.PaddingRight),
+            PaddingTop = PixelsToPoints(textBox.PaddingTop),
+            PaddingBottom = PixelsToPoints(textBox.PaddingBottom),
+            Sizing = textBox.Sizing,
+            Overflow = textBox.Overflow,
+            Alignment = textBox.Alignment,
+            LineSpacing = textBox.LineSpacing,
+            BackgroundColor = textBox.BackgroundColor,
+            BorderColor = textBox.BorderColor,
+            BorderWidth = textBox.BorderWidth,
+            BorderStyle = textBox.BorderStyle
+        };
+
+        var result = DrawTextBox(textBoxPoints, text, PixelsToPoints(fontSizePixels), textColor, font);
+        
+        // Convert result back to pixels
+        result.X = PointsToPixels(result.X);
+        result.Y = PointsToPixels(result.Y);
+        result.Width = PointsToPixels(result.Width);
+        result.Height = PointsToPixels(result.Height);
+        result.MinWidth = PointsToPixels(result.MinWidth);
+        result.MaxWidth = result.MaxWidth == float.MaxValue ? float.MaxValue : PointsToPixels(result.MaxWidth);
+        result.MinHeight = PointsToPixels(result.MinHeight);
+        result.MaxHeight = result.MaxHeight == float.MaxValue ? float.MaxValue : PointsToPixels(result.MaxHeight);
+        result.Padding = PointsToPixels(result.Padding);
+        result.PaddingLeft = PointsToPixels(result.PaddingLeft);
+        result.PaddingRight = PointsToPixels(result.PaddingRight);
+        result.PaddingTop = PointsToPixels(result.PaddingTop);
+        result.PaddingBottom = PointsToPixels(result.PaddingBottom);
+        
+        return result;
+    }
+
+    public TextBox DrawRichTextBox(TextBox textBox, RichText richText, float fontSize = 12f)
+    {
+        // Create a copy to avoid modifying the original
+        var box = new TextBox(textBox.X, textBox.Y, textBox.Width, textBox.Height)
+        {
+            MinWidth = textBox.MinWidth,
+            MaxWidth = textBox.MaxWidth,
+            MinHeight = textBox.MinHeight,
+            MaxHeight = textBox.MaxHeight,
+            Padding = textBox.Padding,
+            PaddingLeft = textBox.PaddingLeft,
+            PaddingRight = textBox.PaddingRight,
+            PaddingTop = textBox.PaddingTop,
+            PaddingBottom = textBox.PaddingBottom,
+            Sizing = textBox.Sizing,
+            Overflow = textBox.Overflow,
+            Alignment = textBox.Alignment,
+            LineSpacing = textBox.LineSpacing,
+            BackgroundColor = textBox.BackgroundColor,
+            BorderColor = textBox.BorderColor,
+            BorderWidth = textBox.BorderWidth,
+            BorderStyle = textBox.BorderStyle
+        };
+
+        // Calculate required dimensions for rich text
+        CalculateRichTextBoxDimensions(box, richText, fontSize);
+
+        // Draw background if specified
+        if (box.BackgroundColor != null)
+        {
+            DrawRectangle(box.X, box.Y, box.Width, box.Height, 0f, null, box.BackgroundColor);
+        }
+
+        // Draw border if specified
+        if (box.BorderColor != null)
+        {
+            DrawRectangle(box.X, box.Y, box.Width, box.Height, box.BorderWidth, box.BorderColor, null, box.BorderStyle);
+        }
+
+        // Draw rich text content
+        var contentX = box.GetContentX();
+        var contentY = box.GetContentY();
+        var contentWidth = box.GetContentWidth();
+        var contentHeight = box.GetContentHeight();
+
+        if (box.Overflow == TextBoxOverflow.Clip)
+        {
+            SetRectangularClip(contentX, contentY, contentWidth, contentHeight);
+        }
+
+        if (box.Overflow == TextBoxOverflow.Wrap || box.Sizing == TextBoxSizing.AutoHeight || box.Sizing == TextBoxSizing.AutoBoth)
+        {
+            DrawTextBoxMultiLineRichText(richText, contentX, contentY, contentWidth, fontSize, box.Alignment, box.LineSpacing);
+        }
+        else
+        {
+            // Single line rich text - adjust X coordinate for alignment
+            var textX = box.Alignment switch
+            {
+                TextAlignment.Center => contentX + (contentWidth / 2),
+                TextAlignment.Right => contentX + contentWidth,
+                _ => contentX // Left alignment
+            };
+            
+            DrawRichText(richText, textX, contentY, fontSize, box.Alignment);
+        }
+
+        if (box.Overflow == TextBoxOverflow.Clip)
+        {
+            RestoreGraphicsState();
+        }
+
+        return box;
+    }
+
+    public TextBox DrawRichTextBoxInches(TextBox textBoxInches, RichText richText, float fontSizeInches = 0.167f)
+    {
+        // Convert textBox from inches to points
+        var textBoxPoints = new TextBox(
+            InchesToPoints(textBoxInches.X), 
+            InchesToPoints(textBoxInches.Y), 
+            InchesToPoints(textBoxInches.Width), 
+            InchesToPoints(textBoxInches.Height))
+        {
+            MinWidth = InchesToPoints(textBoxInches.MinWidth),
+            MaxWidth = textBoxInches.MaxWidth == float.MaxValue ? float.MaxValue : InchesToPoints(textBoxInches.MaxWidth),
+            MinHeight = InchesToPoints(textBoxInches.MinHeight),
+            MaxHeight = textBoxInches.MaxHeight == float.MaxValue ? float.MaxValue : InchesToPoints(textBoxInches.MaxHeight),
+            Padding = InchesToPoints(textBoxInches.Padding),
+            PaddingLeft = InchesToPoints(textBoxInches.PaddingLeft),
+            PaddingRight = InchesToPoints(textBoxInches.PaddingRight),
+            PaddingTop = InchesToPoints(textBoxInches.PaddingTop),
+            PaddingBottom = InchesToPoints(textBoxInches.PaddingBottom),
+            Sizing = textBoxInches.Sizing,
+            Overflow = textBoxInches.Overflow,
+            Alignment = textBoxInches.Alignment,
+            LineSpacing = textBoxInches.LineSpacing,
+            BackgroundColor = textBoxInches.BackgroundColor,
+            BorderColor = textBoxInches.BorderColor,
+            BorderWidth = textBoxInches.BorderWidth,
+            BorderStyle = textBoxInches.BorderStyle
+        };
+
+        var result = DrawRichTextBox(textBoxPoints, richText, InchesToPoints(fontSizeInches));
+        
+        // Convert result back to inches
+        result.X = PointsToInches(result.X);
+        result.Y = PointsToInches(result.Y);
+        result.Width = PointsToInches(result.Width);
+        result.Height = PointsToInches(result.Height);
+        result.MinWidth = PointsToInches(result.MinWidth);
+        result.MaxWidth = result.MaxWidth == float.MaxValue ? float.MaxValue : PointsToInches(result.MaxWidth);
+        result.MinHeight = PointsToInches(result.MinHeight);
+        result.MaxHeight = result.MaxHeight == float.MaxValue ? float.MaxValue : PointsToInches(result.MaxHeight);
+        result.Padding = PointsToInches(result.Padding);
+        result.PaddingLeft = PointsToInches(result.PaddingLeft);
+        result.PaddingRight = PointsToInches(result.PaddingRight);
+        result.PaddingTop = PointsToInches(result.PaddingTop);
+        result.PaddingBottom = PointsToInches(result.PaddingBottom);
+        
+        return result;
+    }
+
+    private void CalculateTextBoxDimensions(TextBox box, string text, float fontSize, PdfFont? font)
+    {
+        var actualFont = font ?? PdfFont.Helvetica;
+        
+        if (box.Sizing == TextBoxSizing.Fixed)
+            return;
+
+        var contentWidth = box.GetContentWidth();
+        var requiredWidth = EstimateTextWidthForFont(text, fontSize, actualFont);
+        var requiredHeight = fontSize * box.LineSpacing;
+
+        if (box.Sizing == TextBoxSizing.AutoWidth || box.Sizing == TextBoxSizing.AutoBoth)
+        {
+            // For AutoWidth, always expand the width to fit the content (unless constrained by MaxWidth)
+            var newWidth = Math.Max(box.MinWidth, Math.Min(box.MaxWidth, 
+                requiredWidth + box.GetEffectivePaddingLeft() + box.GetEffectivePaddingRight()));
+            box.Width = newWidth;
+            requiredHeight = fontSize * box.LineSpacing;
+        }
+
+        if (box.Sizing == TextBoxSizing.AutoHeight || box.Sizing == TextBoxSizing.AutoBoth)
+        {
+            if (box.Overflow == TextBoxOverflow.Wrap)
+            {
+                var lines = WrapText(text, box.GetContentWidth(), fontSize, actualFont);
+                requiredHeight = lines.Count * fontSize * box.LineSpacing;
+            }
+            
+            var newHeight = Math.Max(box.MinHeight, Math.Min(box.MaxHeight, 
+                requiredHeight + box.GetEffectivePaddingTop() + box.GetEffectivePaddingBottom()));
+            box.Height = newHeight;
+        }
+    }
+
+    private void CalculateRichTextBoxDimensions(TextBox box, RichText richText, float fontSize)
+    {
+        if (box.Sizing == TextBoxSizing.Fixed)
+            return;
+
+        var contentWidth = box.GetContentWidth();
+        var requiredWidth = CalculateRichTextWidth(richText, fontSize);
+        var requiredHeight = fontSize * box.LineSpacing;
+
+        if (box.Sizing == TextBoxSizing.AutoWidth || box.Sizing == TextBoxSizing.AutoBoth)
+        {
+            // For AutoWidth, always expand the width to fit the content (unless constrained by MaxWidth)
+            var newWidth = Math.Max(box.MinWidth, Math.Min(box.MaxWidth, 
+                requiredWidth + box.GetEffectivePaddingLeft() + box.GetEffectivePaddingRight()));
+            box.Width = newWidth;
+            requiredHeight = fontSize * box.LineSpacing;
+        }
+
+        if (box.Sizing == TextBoxSizing.AutoHeight || box.Sizing == TextBoxSizing.AutoBoth)
+        {
+            if (box.Overflow == TextBoxOverflow.Wrap)
+            {
+                var lines = WrapRichText(richText, box.GetContentWidth(), fontSize);
+                requiredHeight = lines.Count * fontSize * box.LineSpacing;
+            }
+            
+            var newHeight = Math.Max(box.MinHeight, Math.Min(box.MaxHeight, 
+                requiredHeight + box.GetEffectivePaddingTop() + box.GetEffectivePaddingBottom()));
+            box.Height = newHeight;
+        }
     }
 
     public void DrawRectangle(float x, float y, float width, float height, float lineWidth = 1f, PdfColor? strokeColor = null, PdfColor? fillColor = null, LineStyle? strokeStyle = null)
