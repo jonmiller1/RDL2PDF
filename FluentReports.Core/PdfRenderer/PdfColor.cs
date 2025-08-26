@@ -28,4 +28,7 @@ public class PdfColor
     public static PdfColor Gray => new(0.5f, 0.5f, 0.5f);
     public static PdfColor LightGray => new(0.75f, 0.75f, 0.75f);
     public static PdfColor DarkGray => new(0.25f, 0.25f, 0.25f);
+    public static PdfColor DarkBlue => new(0f, 0f, 0.5f);
+    public static PdfColor DarkRed => new(0.5f, 0f, 0f);
+    public static PdfColor DarkGreen => new(0f, 0.5f, 0f);
 }

@@ -34,6 +34,13 @@
       "Read(/c:\\output/**)",
       "Bash(start \"\" \"c:\\output\\TextBoxTest.pdf\")",
       "Bash(start \"\" \"c:\\output\\DebugAlignment.pdf\")",
+      "Read(/C:\\output/**)",
+      "Bash(start \"\" \"c:\\output\\HeaderFooterTest.pdf\")",
+      "Read(/C:\\output/**)",
+      "Bash(start \"\" \"c:\\output\\PageOfTotalTest.pdf\")",
+      "Read(/C:\\output/**)",
+      "Bash(start \"\" \"c:\\output\\DifferentHeadersTest.pdf\")",
+      "Read(/C:\\output/**)",
       "Read(/C:\\output/**)"
     ],
     "deny": [],
