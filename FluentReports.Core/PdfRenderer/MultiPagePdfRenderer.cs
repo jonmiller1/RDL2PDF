@@ -11,6 +11,7 @@ public class MultiPagePdfRenderer : IDisposable
     private readonly float _dpi;
     private SimplePdfRenderer _currentPage;
     private PageHeaderFooter? _headerFooter;
+    private readonly List<Watermark> _watermarks = new();
     private bool _disposed = false;
     
     // Content area boundaries (adjusted for headers/footers)
@@ -49,6 +50,21 @@ public class MultiPagePdfRenderer : IDisposable
     {
         _headerFooter = headerFooter;
         UpdateContentAreaBounds();
+    }
+    
+    public void AddWatermark(Watermark watermark)
+    {
+        _watermarks.Add(watermark);
+    }
+    
+    public void ClearWatermarks()
+    {
+        _watermarks.Clear();
+    }
+    
+    public void RemoveWatermark(Watermark watermark)
+    {
+        _watermarks.Remove(watermark);
     }
     
     private void UpdateContentAreaBounds()
@@ -281,10 +297,33 @@ public class MultiPagePdfRenderer : IDisposable
         }
     }
     
+    private void RenderWatermarks(WatermarkLayer layer)
+    {
+        for (int pageIndex = 0; pageIndex < _pages.Count; pageIndex++)
+        {
+            var page = _pages[pageIndex];
+            var pageNumber = pageIndex + 1;
+            
+            foreach (var watermark in _watermarks)
+            {
+                if (watermark.Layer == layer)
+                {
+                    watermark.Render(page, _pageWidth, _pageHeight, pageNumber, _pages.Count);
+                }
+            }
+        }
+    }
+    
     public byte[] ToByteArray()
     {
-        // First render headers and footers on all pages
+        // Render watermarks first (background layer)
+        RenderWatermarks(WatermarkLayer.Background);
+        
+        // Then render headers and footers
         RenderHeadersFooters();
+        
+        // Finally render foreground watermarks
+        RenderWatermarks(WatermarkLayer.Foreground);
         
         // For now, we'll combine all pages into a single PDF by merging their content
         // This is a simplified approach - a full implementation would create a proper multi-page PDF structure

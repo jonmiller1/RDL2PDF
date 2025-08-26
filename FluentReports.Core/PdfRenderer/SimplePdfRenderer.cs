@@ -218,8 +218,14 @@ public class SimplePdfRenderer : IDisposable
         font ??= PdfFont.Helvetica;
         var fontIndex = GetOrAddFont(font);
         
-        // Calculate text width for alignment
-        var textWidth = EstimateTextWidth(text, fontSize);
+        // Calculate text width for alignment using the specified font
+        var textWidth = EstimateTextWidthForFont(text, fontSize, font);
+        
+        // Debug output for TR positioning
+        if (text == "TR")
+        {
+            Console.WriteLine($"DrawTextInternal: text='{text}', x={x}, textWidth={textWidth}, adjustedX will be={x - textWidth/2}");
+        }
         var adjustedX = alignment switch
         {
             TextAlignment.Center => x - (textWidth / 2),
@@ -248,7 +254,7 @@ public class SimplePdfRenderer : IDisposable
         return EstimateTextWidthForFont(text, fontSize, PdfFont.Helvetica);
     }
 
-    private float EstimateTextWidthForFont(string text, float fontSize, PdfFont font)
+    public float EstimateTextWidthForFont(string text, float fontSize, PdfFont font)
     {
         // More accurate character width estimation based on font metrics
         // Character widths in thousandths of an em unit (font size)
@@ -1544,6 +1550,153 @@ public class SimplePdfRenderer : IDisposable
     private void WriteText(BinaryWriter writer, string text)
     {
         writer.Write(Encoding.ASCII.GetBytes(text));
+    }
+
+    // Watermark and rotation support methods
+    public void SaveGraphicsState()
+    {
+        _content.AppendLine("q"); // Save graphics state
+    }
+
+    public void DrawTextWithRotation(string text, float x, float y, float fontSize = 12f, PdfColor? color = null, PdfFont? font = null, float rotationDegrees = 0f)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        
+
+        var pdfY = ConvertY(y);
+        
+        if (rotationDegrees != 0)
+        {
+            // Apply rotation transformation
+            var radians = rotationDegrees * Math.PI / 180.0;
+            var cos = Math.Cos(radians);
+            var sin = Math.Sin(radians);
+            
+            // Estimate text width for centering using the specified font
+            var textWidth = EstimateTextWidthForFont(text, fontSize, font ?? PdfFont.Helvetica);
+            
+            // Debug output for TR positioning
+            if (text == "TR")
+            {
+                Console.WriteLine($"DrawTextWithRotation (rotated): text='{text}', x={x}, textWidth={textWidth}, will draw at={-textWidth/2}");
+            }
+            
+            // Move to rotation point, rotate, then translate
+            _content.AppendLine($"{cos:F6} {sin:F6} {-sin:F6} {cos:F6} {x:F2} {pdfY:F2} cm");
+            
+            // Draw text offset to center it around the rotation point
+            DrawTextInternal("", -textWidth/2, 0, fontSize, color, font, TextAlignment.Left, text);
+        }
+        else
+        {
+            // Debug output for TR positioning
+            if (text == "TR")
+            {
+                Console.WriteLine($"DrawTextWithRotation (non-rotated): text='{text}', x={x}, will call DrawTextInternal with TextAlignment.Center");
+            }
+            DrawTextInternal("", x, pdfY, fontSize, color, font, TextAlignment.Center, text);
+        }
+    }
+
+    public void DrawImageWithRotation(string imagePath, float x, float y, float width, float height, float rotationDegrees = 0f, float opacity = 1.0f)
+    {
+        if (string.IsNullOrEmpty(imagePath)) return;
+
+        var pdfY = ConvertY(y + height); // Bottom-left corner in PDF coordinates
+        
+        if (rotationDegrees != 0)
+        {
+            // Apply rotation transformation
+            var radians = rotationDegrees * Math.PI / 180.0;
+            var cos = Math.Cos(radians);
+            var sin = Math.Sin(radians);
+            
+            // Move to rotation point, rotate
+            _content.AppendLine($"{cos:F6} {sin:F6} {-sin:F6} {cos:F6} {x:F2} {pdfY:F2} cm");
+            
+            // Draw image at origin with centered positioning
+            DrawImageInternal(imagePath, -width/2, -height/2, width, height, opacity);
+        }
+        else
+        {
+            DrawImageInternal(imagePath, x - width/2, pdfY, width, height, opacity);
+        }
+    }
+
+    private void DrawTextInternal(string prefix, float x, float y, float fontSize, PdfColor? color, PdfFont? font, TextAlignment alignment, string text)
+    {
+        var fontId = GetOrAddFont(font ?? PdfFont.Helvetica);
+        
+        _content.AppendLine("BT"); // Begin text
+        
+        if (color != null)
+        {
+            _content.AppendLine($"{color.R:F3} {color.G:F3} {color.B:F3} rg"); // Set fill color
+        }
+        
+        _content.AppendLine($"/F{fontId} {fontSize:F2} Tf"); // Set font and size
+        _content.AppendLine($"{x:F2} {y:F2} Td"); // Set text position
+        _content.AppendLine($"({EscapeText(text)}) Tj"); // Show text
+        _content.AppendLine("ET"); // End text
+    }
+
+    private void DrawImageInternal(string imagePath, float x, float y, float width, float height, float opacity)
+    {
+        if (!_images.ContainsKey(imagePath))
+        {
+            try
+            {
+                var (processedObjectData, imageBytes) = ProcessImage(imagePath);
+                var imageIndex = _imageData.Count + 1;
+                _images[imagePath] = imageIndex;
+                
+                _imageData.Add((processedObjectData, imageBytes));
+            }
+            catch
+            {
+                return; // Skip if image can't be processed
+            }
+        }
+
+        var imageId = _images[imagePath];
+        
+        // Set opacity through graphics state (simplified)
+        if (opacity < 1.0f)
+        {
+            // In a full implementation, you'd set up an ExtGState for opacity
+            // For now, we'll just render the image normally
+        }
+        
+        _content.AppendLine("q"); // Save graphics state
+        _content.AppendLine($"{width:F2} 0 0 {height:F2} {x:F2} {y:F2} cm"); // Transform matrix
+        _content.AppendLine($"/Im{imageId} Do"); // Draw image
+        _content.AppendLine("Q"); // Restore graphics state
+    }
+
+    private int GetImageWidth(string imagePath)
+    {
+        try
+        {
+            using var image = System.Drawing.Image.FromFile(imagePath);
+            return image.Width;
+        }
+        catch
+        {
+            return 100; // Default fallback
+        }
+    }
+
+    private int GetImageHeight(string imagePath)
+    {
+        try
+        {
+            using var image = System.Drawing.Image.FromFile(imagePath);
+            return image.Height;
+        }
+        catch
+        {
+            return 100; // Default fallback
+        }
     }
 
     public void Dispose()
